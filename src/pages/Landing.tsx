@@ -56,7 +56,7 @@ export function Landing() {
               {brands.map(brand => (
                 <div key={brand.id} className="flex flex-col items-center justify-center p-4 hover:scale-105 transition-transform gap-3">
                   <img 
-                     src={brand.logo} 
+                     src={brand.logo || undefined} 
                      alt={`${brand.name} logo`} 
                      referrerPolicy="no-referrer"
                      className="max-h-12 w-auto object-contain drop-shadow-sm"

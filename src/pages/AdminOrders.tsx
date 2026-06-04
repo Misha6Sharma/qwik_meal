@@ -125,9 +125,14 @@ export function AdminOrders() {
                     <td className="px-6 py-4 font-medium text-gray-900">{order.id}</td>
                     <td className="px-6 py-4">
                       <div>{new Date(order.createdAt).toLocaleString()}</div>
-                      {order.deliveryDate && order.deliveryTime && (
+                      {order.campaignName && (
+                        <div className="text-xs text-indigo-600 mt-1 font-semibold">
+                           Campaign: {order.campaignName}
+                        </div>
+                      )}
+                      {(order.scheduledDeliveryDate || order.deliveryDate) && (order.scheduledDeliveryTime || order.deliveryTime) && (
                         <div className="text-xs text-red-600 font-medium mt-1">
-                          Scheduled: {order.deliveryDate} at {order.deliveryTime}
+                          Scheduled: {order.scheduledDeliveryDate || order.deliveryDate} at {order.scheduledDeliveryTime || order.deliveryTime}
                         </div>
                       )}
                     </td>

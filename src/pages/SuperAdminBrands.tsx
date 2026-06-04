@@ -282,7 +282,7 @@ export function SuperAdminBrands() {
             <div key={brand.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
               <div className="h-40 bg-gray-50 relative border-b border-gray-100 p-4 flex items-center justify-center">
                 <img 
-                  src={brand.logo} 
+                  src={brand.logo || undefined} 
                   alt={brand.name} 
                   referrerPolicy="no-referrer" 
                   className="max-h-full max-w-full object-contain" 

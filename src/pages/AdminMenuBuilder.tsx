@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Image as ImageIcon, Save, Trash2, CheckCircle2, Edit2, X, Upload, BarChart3, Users, DollarSign, ShoppingBag, Eye, EyeOff, Share2, Copy, MessageSquare, Mail, Link2, Download, MapPin } from 'lucide-react';
-import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, CampaignServiceability } from '../types';
+import { Plus, Image as ImageIcon, Save, Trash2, CheckCircle2, Edit2, X, Upload, BarChart3, Users, DollarSign, ShoppingBag, Eye, EyeOff, Share2, Copy, MessageSquare, Mail, Link2, Download, MapPin, Calendar, Clock } from 'lucide-react';
+import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, CampaignServiceability, FulfillmentSettings } from '../types';
 import { getBrands } from '../brands';
-import { getCampaigns, updateCampaignName, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignServiceability } from '../campaigns';
+import { updateCampaignCTA, updateCampaignSocialProof, getCampaigns, updateCampaignName, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignServiceability, updateCampaignTimeline, updateCampaignFulfillment } from '../campaigns';
 import { authService } from '../auth';
 import { dbService } from '../db';
 import { ExportOrdersModal } from '../components/ExportOrdersModal';
@@ -76,9 +76,35 @@ export function AdminMenuBuilder() {
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [campaignLogs, setCampaignLogs] = useState<any[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [shareCustomerName, setShareCustomerName] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
   const [showServiceabilityModal, setShowServiceabilityModal] = useState(false);
+  const [showTimelineModal, setShowTimelineModal] = useState(false);
+  const [timelineForm, setTimelineForm] = useState({ startDate: '', endDate: '' });
+  const [showFulfillmentModal, setShowFulfillmentModal] = useState(false);
+  const [fulfillmentForm, setFulfillmentForm] = useState<FulfillmentSettings>({
+    mode: 'OPEN',
+    fixedDeliveryDate: '',
+    fixedDeliveryTime: '',
+    fixedPickupDate: '',
+    fixedPickupTime: '',
+    rangeStartDate: '',
+    rangeEndDate: ''
+  });
+  const [showSocialProofModal, setShowSocialProofModal] = useState(false);
+  const [socialProofForm, setSocialProofForm] = useState({
+    enabled: false,
+    ordersPlaced: 500,
+    rating: 4.8,
+    showPopularity: true
+  });
+  const [showCtaModal, setShowCtaModal] = useState(false);
+  const [ctaForm, setCtaForm] = useState({
+    enabled: true,
+    text: 'Order Now',
+    theme: 'teal'
+  });
   const [serviceabilityForm, setServiceabilityForm] = useState<CampaignServiceability>({
     enabled: false,
     coverageType: 'ALL_INDIA',
@@ -386,7 +412,7 @@ export function AdminMenuBuilder() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
       <ExportOrdersModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
       
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 border-b border-gray-200 pb-6 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Campaign Menu Builder</h1>
           <p className="text-gray-500 mt-2">Manage menu items for your brand campaigns.</p>
@@ -433,7 +459,7 @@ export function AdminMenuBuilder() {
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {brandCampaigns.length === 0 ? (
                 <span className="text-sm font-medium text-gray-500 mr-2">No campaigns yet</span>
               ) : (
@@ -448,84 +474,13 @@ export function AdminMenuBuilder() {
                 </select>
               )}
 
-              {brandCampaigns.length > 0 && (
-                <>
-                  <button
-                    onClick={() => {
-                      const c = allCampaigns.find((camp) => camp.id === campaignId);
-                      setCurrentCampaignPrivacy(c?.sharePrivacy || 'PUBLIC');
-                      setShowShareModal(true);
-                    }}
-                    className="flex items-center gap-2 bg-red-50 text-red-600 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-red-100 transition whitespace-nowrap"
-                    title="Share Campaign Link"
-                  >
-                    Share
-                  </button>
-                  <button
-                    onClick={() => {
-                      const c = allCampaigns.find((camp) => camp.id === campaignId);
-                      if (c?.serviceability) {
-                        setServiceabilityForm(c.serviceability);
-                      } else {
-                        setServiceabilityForm({
-                          enabled: false,
-                          coverageType: 'ALL_INDIA',
-                          pincodes: [],
-                          cities: [],
-                          radiusInfo: { lat: 0, lng: 0, radiusKm: 5 },
-                          storeIds: []
-                        });
-                      }
-                      setShowServiceabilityModal(true);
-                    }}
-                    className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition whitespace-nowrap"
-                    title="Campaign Serviceability"
-                  >
-                    <MapPin size={16} />
-                    Serviceability Configuration
-                  </button>
-                  <button
-                    onClick={() => {
-                      const c = allCampaigns.find((camp) => camp.id === campaignId);
-                      if (c?.benefits) {
-                        setBenefitsForm(c.benefits);
-                      } else {
-                        setBenefitsForm({
-                          freeDelivery: false,
-                          minOrderValueForFreeDelivery: 0,
-                          deliveryChargeAmount: 40,
-                          packagingChargeAmount: 20,
-                          waivePackagingCharge: false,
-                          processingFeeAmount: 30,
-                          waiveProcessingFee: false,
-                        });
-                      }
-                      setShowBenefitsModal(true);
-                    }}
-                    className="flex items-center gap-2 bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-100 transition whitespace-nowrap"
-                    title="Campaign Benefits"
-                  >
-                    Benefits Config
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNewCampaignName(allCampaigns.find(c => c.id === campaignId)?.name || '');
-                      setIsEditingCampaignName(true);
-                    }}
-                    className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Edit Campaign Name"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                </>
-              )}
               <button
                 onClick={() => {
                   setNewCampaignName('');
                   setIsCreatingCampaign(true);
                   setIsEditingCampaignName(false);
                 }}
-                className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors shadow-sm bg-white border border-gray-200"
                 title="Create New Campaign"
               >
                 <Plus size={18} />
@@ -534,6 +489,158 @@ export function AdminMenuBuilder() {
           )}
         </div>
       </div>
+
+      {brandCampaigns.length > 0 && !isEditingCampaignName && !isCreatingCampaign && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-6 mb-6">
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              setCurrentCampaignPrivacy(c?.sharePrivacy || 'PUBLIC');
+              setShowShareModal(true);
+            }}
+            className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-100 transition whitespace-nowrap border border-red-100"
+            title="Share Campaign Link"
+          >
+            Share Options
+          </button>
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              if (c?.serviceability) {
+                setServiceabilityForm(c.serviceability);
+              } else {
+                setServiceabilityForm({
+                  enabled: false,
+                  coverageType: 'ALL_INDIA',
+                  pincodes: [],
+                  cities: [],
+                  radiusInfo: { lat: 0, lng: 0, radiusKm: 5 },
+                  storeIds: []
+                });
+              }
+              setShowServiceabilityModal(true);
+            }}
+            className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition whitespace-nowrap border border-indigo-100"
+            title="Campaign Serviceability"
+          >
+            <MapPin size={16} />
+            Serviceability
+          </button>
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              setTimelineForm({
+                startDate: c?.startDate || '',
+                endDate: c?.endDate || ''
+              });
+              setShowTimelineModal(true);
+            }}
+            className="flex items-center gap-2 bg-orange-50 text-orange-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-orange-100 transition whitespace-nowrap border border-orange-100"
+            title="Campaign Validity"
+          >
+            <Clock size={16} />
+            Validity
+          </button>
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              if (c?.fulfillmentSettings) {
+                setFulfillmentForm(c.fulfillmentSettings);
+              } else {
+                setFulfillmentForm({
+                  mode: 'OPEN',
+                  fixedDeliveryDate: '',
+                  fixedDeliveryTime: '',
+                  fixedPickupDate: '',
+                  fixedPickupTime: '',
+                  rangeStartDate: '',
+                  rangeEndDate: ''
+                });
+              }
+              setShowFulfillmentModal(true);
+            }}
+            className="flex items-center gap-2 bg-teal-50 text-teal-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-teal-100 transition whitespace-nowrap border border-teal-100"
+            title="Delivery/Pickup Scheduling"
+          >
+            <Calendar size={16} />
+            Fulfillment
+          </button>
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              if (c?.socialProof) {
+                setSocialProofForm(c.socialProof);
+              } else {
+                setSocialProofForm({
+                  enabled: false,
+                  ordersPlaced: 500,
+                  rating: 4.8,
+                  showPopularity: true
+                });
+              }
+              setShowSocialProofModal(true);
+            }}
+            className="flex items-center gap-2 bg-pink-50 text-pink-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-pink-100 transition whitespace-nowrap border border-pink-100"
+            title="Social Proof Options"
+          >
+            Social Proof
+          </button>
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              if (c?.ctaConfig) {
+                setCtaForm(c.ctaConfig);
+              } else {
+                setCtaForm({
+                  enabled: true,
+                  text: 'Order Now',
+                  theme: 'teal'
+                });
+              }
+              setShowCtaModal(true);
+            }}
+            className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-100 transition whitespace-nowrap border border-emerald-100"
+            title="CTA & WhatsApp Settings"
+          >
+            Button Settings
+          </button>
+          <button
+            onClick={() => {
+              const c = allCampaigns.find((camp) => camp.id === campaignId);
+              if (c?.benefits) {
+                setBenefitsForm(c.benefits);
+              } else {
+                setBenefitsForm({
+                  freeDelivery: false,
+                  minOrderValueForFreeDelivery: 0,
+                  deliveryChargeAmount: 40,
+                  packagingChargeAmount: 20,
+                  waivePackagingCharge: false,
+                  processingFeeAmount: 30,
+                  waiveProcessingFee: false,
+                });
+              }
+              setShowBenefitsModal(true);
+            }}
+            className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-100 transition whitespace-nowrap border border-blue-100"
+            title="Campaign Benefits"
+          >
+            Benefits
+          </button>
+          <div className="h-6 w-px bg-gray-300 mx-1 hidden sm:block"></div>
+          <button
+            onClick={() => {
+              setNewCampaignName(allCampaigns.find(c => c.id === campaignId)?.name || '');
+              setIsEditingCampaignName(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white"
+            title="Edit Campaign Name"
+          >
+            <Edit2 size={16} />
+            Rename
+          </button>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-8">
         <div className="lg:col-span-3">
@@ -648,7 +755,7 @@ export function AdminMenuBuilder() {
                   />
                   {newItem.mealImage && (
                     <div className="w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center">
-                      <img src={newItem.mealImage} alt="Preview" className="w-full h-full object-cover" />
+                      <img src={newItem.mealImage || undefined} alt="Preview" className="w-full h-full object-cover" />
                     </div>
                   )}
                 </div>
@@ -819,7 +926,7 @@ export function AdminMenuBuilder() {
                             className="rounded border-gray-300 text-red-600 focus:ring-red-500 w-5 h-5 cursor-pointer"
                           />
                           <img 
-                            src={item.mealImage} 
+                            src={item.mealImage || undefined} 
                             alt={item.name} 
                             referrerPolicy="no-referrer"
                             className={`w-24 h-24 object-cover rounded-xl shadow-sm border border-gray-100 ${item.isActive === false ? 'grayscale' : ''}`}
@@ -1155,11 +1262,12 @@ export function AdminMenuBuilder() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Link</label>
                 <div className="flex gap-2">
                   <div className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden text-ellipsis whitespace-nowrap text-sm text-gray-600">
-                    {`${window.location.origin}/c/${campaignId}`}
+                    {selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`}
                   </div>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/c/${campaignId}`);
+                      const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
+                      navigator.clipboard.writeText(url);
                       alert('Link copied to clipboard!');
                     }}
                     title="Copy Link"
@@ -1170,10 +1278,52 @@ export function AdminMenuBuilder() {
                 </div>
               </div>
 
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Personalize (Optional)</label>
+                <input 
+                   type="text" 
+                   placeholder="Customer Name (e.g. John)" 
+                   value={shareCustomerName} 
+                   onChange={(e) => setShareCustomerName(e.target.value)} 
+                   className="w-full border border-gray-300 rounded-lg px-4 py-2 mt-1 text-sm focus:ring-red-500 focus:border-red-500 shadow-sm" 
+                 />
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                 <button
                   onClick={() => {
-                    const text = encodeURIComponent(`Check out our new campaign! ${window.location.origin}/c/${campaignId}`);
+                    const c = allCampaigns.find((camp) => camp.id === campaignId);
+                    const b = brands.find(brand => brand.id === c?.brandId);
+                    const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
+                    const customGreeting = shareCustomerName ? `Hi ${shareCustomerName},\nWe've reserved a special offer for you from ${b?.name || 'us'}.\n\n` : '';
+                    
+                    let expiryText = '';
+                    if (c?.endDate) {
+                      expiryText = `\n⏳ *Offer Valid Until:*\n${new Date(c.endDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}\n`;
+                    }
+
+                    const ctaText = c?.ctaConfig?.text || 'Order Now';
+                    const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n${url}` : `🔗 Tap below to order:\n${url}`;
+
+                    const text = encodeURIComponent(
+`${customGreeting}━━━━━━━━━━━━━━━
+
+🍔 *QwikMeal Exclusive*
+
+*${b?.name || 'Brand Partner'}*
+*${c?.name || 'Special Campaign'}*
+
+✅ Special Pricing
+✅ Quick Delivery
+✅ Secure Checkout
+✅ Verified Brand Partner
+${expiryText}
+${ctaSection}
+
+Powered by QwikMeal
+
+━━━━━━━━━━━━━━━`
+                    );
                     window.open(`https://wa.me/?text=${text}`, '_blank');
                   }}
                   className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-colors group"
@@ -1183,8 +1333,9 @@ export function AdminMenuBuilder() {
                 </button>
                 <button
                   onClick={() => {
+                    const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
                     const subject = encodeURIComponent('New Campaign');
-                    const body = encodeURIComponent(`Check out our new campaign!\n\nLink: ${window.location.origin}/c/${campaignId}`);
+                    const body = encodeURIComponent(`Check out our new campaign!\n\nLink: ${url}`);
                     window.location.href = `mailto:?subject=${subject}&body=${body}`;
                   }}
                   className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-colors group"
@@ -1194,7 +1345,7 @@ export function AdminMenuBuilder() {
                 </button>
                 <button
                   onClick={async () => {
-                    const url = `${window.location.origin}/c/${campaignId}`;
+                    const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
                     if (navigator.share) {
                       try {
                         await navigator.share({
@@ -1213,6 +1364,173 @@ export function AdminMenuBuilder() {
                 >
                   <Share2 className="text-gray-400 group-hover:text-purple-500 transition-colors" size={24} />
                   <span className="text-xs font-semibold text-gray-600 group-hover:text-purple-600 transition-colors">{navigator.share ? 'More' : 'SMS'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCtaModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                <Link2 size={20} className="text-emerald-600" />
+                Button & Share Settings
+              </h3>
+              <button 
+                onClick={() => setShowCtaModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              <label className="flex items-center gap-2 px-1">
+                <input 
+                  type="checkbox" 
+                  checked={ctaForm.enabled} 
+                  onChange={e => setCtaForm({ ...ctaForm, enabled: e.target.checked })} 
+                  className="w-4 h-4 rounded border-gray-300" 
+                />
+                <span className="font-medium text-gray-800">Show CTA Button in Messages</span>
+              </label>
+
+              {ctaForm.enabled && (
+                <>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Button Text</label>
+                      <select 
+                        value={ctaForm.text} 
+                        onChange={e => setCtaForm({...ctaForm, text: e.target.value})} 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="Order Now">Order Now</option>
+                        <option value="Claim Offer">Claim Offer</option>
+                        <option value="Book Now">Book Now</option>
+                        <option value="Get Deal">Get Deal</option>
+                        <option value="Redeem Offer">Redeem Offer</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Button Color Theme</label>
+                      <select 
+                        value={ctaForm.theme} 
+                        onChange={e => setCtaForm({...ctaForm, theme: e.target.value})} 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="teal">Teal / Default</option>
+                        <option value="blue">Blue</option>
+                        <option value="red">Red</option>
+                        <option value="orange">Orange</option>
+                        <option value="purple">Purple</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  onClick={async () => {
+                    const updatedCampaigns = await updateCampaignCTA(campaignId, ctaForm);
+                    setAllCampaigns(updatedCampaigns);
+                    setShowCtaModal(false);
+                  }}
+                  className="w-full bg-emerald-600 text-white font-bold py-2.5 rounded-lg hover:bg-emerald-700 transition shadow-sm"
+                >
+                  Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSocialProofModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                <BarChart3 size={20} className="text-pink-600" />
+                Social Proof Settings
+              </h3>
+              <button 
+                onClick={() => setShowSocialProofModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              <label className="flex items-center gap-2 px-1">
+                <input 
+                  type="checkbox" 
+                  checked={socialProofForm.enabled} 
+                  onChange={e => setSocialProofForm({ ...socialProofForm, enabled: e.target.checked })} 
+                  className="w-4 h-4 rounded border-gray-300" 
+                />
+                <span className="font-medium text-gray-800">Enable Social Proof Badges</span>
+              </label>
+
+              {socialProofForm.enabled && (
+                <>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Orders Placed (e.g. 500)</label>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        value={socialProofForm.ordersPlaced} 
+                        onChange={e => setSocialProofForm({...socialProofForm, ordersPlaced: Number(e.target.value)})} 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Customer Rating (e.g. 4.8)</label>
+                      <input 
+                        type="number" 
+                        step="0.1" 
+                        min="0" max="5" 
+                        value={socialProofForm.rating} 
+                        onChange={e => setSocialProofForm({...socialProofForm, rating: Number(e.target.value)})} 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <label className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={socialProofForm.showPopularity} 
+                      onChange={e => setSocialProofForm({ ...socialProofForm, showPopularity: e.target.checked })} 
+                      className="w-4 h-4 rounded border-gray-300" 
+                    />
+                    <span className="font-medium text-gray-800 text-sm">Show "High Demand / Top Rated" badge</span>
+                  </label>
+                  </div>
+                </>
+              )}
+              
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  onClick={async () => {
+                    const updatedCampaigns = await updateCampaignSocialProof(campaignId, socialProofForm);
+                    setAllCampaigns(updatedCampaigns);
+                    setShowSocialProofModal(false);
+                  }}
+                  className="w-full bg-pink-600 text-white font-bold py-2.5 rounded-lg hover:bg-pink-700 transition shadow-sm"
+                >
+                  Save Social Proof Config
                 </button>
               </div>
             </div>
@@ -1409,6 +1727,141 @@ export function AdminMenuBuilder() {
                   className="w-full bg-indigo-600 text-white font-bold py-2.5 rounded-lg hover:bg-indigo-700 transition shadow-sm"
                 >
                   Save Serviceability Config
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Timeline Modal */}
+      {showTimelineModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                <Clock size={20} className="text-orange-600" />
+                Campaign Validity
+              </h3>
+              <button onClick={() => setShowTimelineModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">Start Date & Time</label>
+                <input 
+                  type="datetime-local" 
+                  value={timelineForm.startDate} 
+                  onChange={(e) => setTimelineForm({...timelineForm, startDate: e.target.value})}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">Expiry Date & Time</label>
+                <input 
+                  type="datetime-local" 
+                  value={timelineForm.endDate} 
+                  onChange={(e) => setTimelineForm({...timelineForm, endDate: e.target.value})}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1"
+                />
+                <p className="text-xs text-gray-500 mt-1">Once expired, customers cannot place new orders.</p>
+              </div>
+              <div className="pt-2">
+                <button
+                  onClick={async () => {
+                    const updatedCampaigns = await updateCampaignTimeline(campaignId, timelineForm.startDate, timelineForm.endDate);
+                    setAllCampaigns(updatedCampaigns);
+                    setShowTimelineModal(false);
+                  }}
+                  className="w-full bg-orange-600 text-white font-bold py-2.5 rounded-lg hover:bg-orange-700 transition"
+                >
+                  Save Timeline
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fulfillment Modal */}
+      {showFulfillmentModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                <Calendar size={20} className="text-teal-600" />
+                Fulfillment Scheduling
+              </h3>
+              <button onClick={() => setShowFulfillmentModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">Delivery Scheduling Mode</label>
+                <select 
+                  value={fulfillmentForm.mode}
+                  onChange={(e) => setFulfillmentForm({...fulfillmentForm, mode: e.target.value as any})}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1"
+                >
+                  <option value="OPEN">Open Delivery (Customer Chooses)</option>
+                  <option value="FIXED">Fixed Date & Time (Admin Controlled)</option>
+                  <option value="RANGE">Date Selection Within Range</option>
+                </select>
+              </div>
+
+              {fulfillmentForm.mode === 'FIXED' && (
+                <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <h4 className="font-semibold text-sm text-gray-800">Fixed Details</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Delivery Date</label>
+                      <input type="date" value={fulfillmentForm.fixedDeliveryDate || ''} onChange={e => setFulfillmentForm({...fulfillmentForm, fixedDeliveryDate: e.target.value})} className="w-full border rounded-lg px-3 py-1.5 mt-1 text-sm"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Delivery Time Slot</label>
+                      <input type="text" placeholder="e.g. 01:00 PM - 02:00 PM" value={fulfillmentForm.fixedDeliveryTime || ''} onChange={e => setFulfillmentForm({...fulfillmentForm, fixedDeliveryTime: e.target.value})} className="w-full border rounded-lg px-3 py-1.5 mt-1 text-sm"/>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Pickup Date</label>
+                      <input type="date" value={fulfillmentForm.fixedPickupDate || ''} onChange={e => setFulfillmentForm({...fulfillmentForm, fixedPickupDate: e.target.value})} className="w-full border rounded-lg px-3 py-1.5 mt-1 text-sm"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Pickup Time Slot</label>
+                      <input type="text" placeholder="e.g. 05:00 PM - 06:00 PM" value={fulfillmentForm.fixedPickupTime || ''} onChange={e => setFulfillmentForm({...fulfillmentForm, fixedPickupTime: e.target.value})} className="w-full border rounded-lg px-3 py-1.5 mt-1 text-sm"/>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {fulfillmentForm.mode === 'RANGE' && (
+                <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <h4 className="font-semibold text-sm text-gray-800">Allowed Date Range</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Start Date</label>
+                      <input type="date" value={fulfillmentForm.rangeStartDate || ''} onChange={e => setFulfillmentForm({...fulfillmentForm, rangeStartDate: e.target.value})} className="w-full border rounded-lg px-3 py-1.5 mt-1 text-sm"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">End Date</label>
+                      <input type="date" value={fulfillmentForm.rangeEndDate || ''} onChange={e => setFulfillmentForm({...fulfillmentForm, rangeEndDate: e.target.value})} className="w-full border rounded-lg px-3 py-1.5 mt-1 text-sm"/>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2">
+                <button
+                  onClick={async () => {
+                    const updatedCampaigns = await updateCampaignFulfillment(campaignId, fulfillmentForm);
+                    setAllCampaigns(updatedCampaigns);
+                    setShowFulfillmentModal(false);
+                  }}
+                  className="w-full bg-teal-600 text-white font-bold py-2.5 rounded-lg hover:bg-teal-700 transition"
+                >
+                  Save Fulfillment Rules
                 </button>
               </div>
             </div>

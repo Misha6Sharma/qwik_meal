@@ -124,7 +124,9 @@ export function Layout() {
                 <div className="flex items-center gap-3">
                   <div className="text-xs text-right hidden lg:block">
                     <p className="font-bold text-gray-900 leading-tight">{user?.name}</p>
-                    <p className="text-gray-500">{user?.role === 'BRAND_ADMIN' ? 'Brand Admin' : user?.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Corporate User'}</p>
+                    {user?.name?.toLowerCase() !== (user?.role === 'BRAND_ADMIN' ? 'brand admin' : user?.role === 'SUPER_ADMIN' ? 'super admin' : 'corporate user') && (
+                      <p className="text-gray-500">{user?.role === 'BRAND_ADMIN' ? 'Brand Admin' : user?.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Corporate User'}</p>
+                    )}
                   </div>
                   <button onClick={() => setIsPwdModalOpen(true)} className="text-gray-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer text-xs font-semibold mr-2 border border-gray-200 hover:border-red-200 px-2 py-1 rounded-md bg-gray-100 hover:bg-red-50">
                     <KeyRound size={14} /> Password

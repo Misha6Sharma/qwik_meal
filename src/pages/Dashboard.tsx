@@ -101,7 +101,7 @@ export function Dashboard() {
                <div key={brand.id} onClick={() => navigate('/dashboard/menu')} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow group flex flex-col cursor-pointer">
                  <div className="h-32 overflow-hidden bg-gray-50 flex items-center justify-center p-6">
                     <img 
-                      src={brand.logo} 
+                      src={brand.logo || undefined} 
                       alt={brand.name} 
                       referrerPolicy="no-referrer" 
                       className="h-full w-full object-contain group-hover:scale-110 transition-transform duration-300" 
@@ -129,7 +129,7 @@ export function Dashboard() {
             {mockMealPlans.map(plan => (
                <div key={plan.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:border-red-600 transition-colors group">
                   <div className="relative h-48">
-                    <img src={plan.imageUrl} alt={plan.title} className="w-full h-full object-cover" />
+                    <img src={plan.imageUrl || undefined} alt={plan.title} className="w-full h-full object-cover" />
                     <div className="absolute top-3 left-3 flex gap-2">
                       {plan.tags.map(tag => (
                         <span key={tag} className="bg-white/90 backdrop-blur-sm text-gray-900 text-xs font-bold px-2 py-1 rounded">

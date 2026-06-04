@@ -182,7 +182,7 @@ export function ExportOrdersModal({ isOpen, onClose }: ExportOrdersModalProps) {
 
         return [
           o.campaignId || 'Standard',
-          campaign?.name || 'Standard Menu',
+          o.campaignName || campaign?.name || 'Standard Menu',
           o.id,
           new Date(o.createdAt).toLocaleString(),
           o.status,
@@ -195,8 +195,8 @@ export function ExportOrdersModal({ isOpen, onClose }: ExportOrdersModalProps) {
           city,
           state,
           pincode,
-          o.deliveryDate,
-          o.deliveryTime,
+          o.scheduledDeliveryDate || o.deliveryDate,
+          o.scheduledDeliveryTime || o.deliveryTime,
           subtotal.toFixed(2),
           productDiscount.toFixed(2),
           (o.gstAmount || 0).toFixed(2),

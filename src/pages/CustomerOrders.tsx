@@ -88,7 +88,7 @@ export function CustomerOrders() {
                   {order.items.map((item, idx) => (
                     <div key={idx} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-100">
                       <div className="flex items-center gap-3">
-                        <img src={item.menuItem.mealImage} alt={item.menuItem.name} className="w-12 h-12 rounded object-cover" />
+                        <img src={item.menuItem.mealImage || undefined} alt={item.menuItem.name} className="w-12 h-12 rounded object-cover" />
                         <div>
                           <div className="font-bold text-sm text-gray-900">
                             {item.menuItem.name} {item.variantSize ? `(${item.variantSize})` : ''}

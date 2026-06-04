@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Clock, MapPin, Receipt, ArrowRight, Building2, User as UserIcon, Mail, Phone, Plus, Minus, ShoppingBag, CreditCard, ChevronLeft } from 'lucide-react';
+import { Clock, MapPin, Receipt, ArrowRight, Building2, User as UserIcon, Mail, Phone, Plus, Minus, ShoppingBag, CreditCard, ChevronLeft, ShieldCheck, Flame, Star, Headset } from 'lucide-react';
 import { MenuItem, Campaign, Brand } from '../types';
 import { getBrands } from '../brands';
 import { getCampaigns } from '../campaigns';
@@ -90,6 +90,74 @@ export function CampaignView() {
   }, [deliveryPinCode, campaign, isServiceable]);
 
   useEffect(() => {
+    if (deliveryPinCode && deliveryPinCode.length === 6 && isServiceable) {
+      fetch(`https://api.postalpincode.in/pincode/${deliveryPinCode}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data[0] && data[0].Status === 'Success') {
+            const postOffice = data[0].PostOffice[0];
+            setDeliveryForm(prev => ({
+              ...prev,
+              pincode: deliveryPinCode,
+              city: postOffice.District || postOffice.Block || '',
+              state: postOffice.State || ''
+            }));
+          }
+        })
+        .catch(err => console.error(err));
+    }
+  }, [deliveryPinCode, isServiceable]);
+
+  const [timeLeft, setTimeLeft] = useState<{days: number, hours: number, minutes: number, seconds: number} | null>(null);
+
+  useEffect(() => {
+    if (!campaign?.endDate) return;
+    
+    const calculateTimeLeft = () => {
+      const difference = new Date(campaign.endDate!).getTime() - new Date().getTime();
+      
+      if (difference > 0) {
+        setTimeLeft({
+          days: Math.floor(difference / (1000 * 60 * 60 * 24)),
+          hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+          minutes: Math.floor((difference / 1000 / 60) % 60),
+          seconds: Math.floor((difference / 1000) % 60)
+        });
+      } else {
+        setTimeLeft(null);
+      }
+    };
+
+    calculateTimeLeft();
+    const timer = setInterval(calculateTimeLeft, 1000);
+    return () => clearInterval(timer);
+  }, [campaign?.endDate]);
+
+  const isCampaignExpired = useMemo(() => {
+    if (!campaign?.endDate) return false;
+    return new Date() > new Date(campaign.endDate);
+  }, [campaign]);
+
+  useEffect(() => {
+    if (campaign && campaign.fulfillmentSettings) {
+      const mode = campaign.fulfillmentSettings.mode;
+      if (mode === 'FIXED') {
+        setDeliveryForm(prev => ({
+          ...prev,
+          deliveryDate: campaign.fulfillmentSettings!.fixedDeliveryDate || '',
+          timeSlot: campaign.fulfillmentSettings!.fixedDeliveryTime || ''
+        }));
+      } else if (mode === 'RANGE') {
+        const todayStr = new Date().toISOString().split('T')[0];
+        setDeliveryForm(prev => ({
+          ...prev,
+          deliveryDate: campaign.fulfillmentSettings!.rangeStartDate || todayStr
+        }));
+      }
+    }
+  }, [campaign]);
+
+  useEffect(() => {
     if (currentUser) {
       setDeliveryForm(prev => ({
         ...prev,
@@ -138,8 +206,13 @@ export function CampaignView() {
         const foundBrand = brands.find(b => b.id === foundCampaign.brandId);
 
         const allItems = await dbService.getMenuItems();
+        const searchParams = new URLSearchParams(window.location.search);
+        const allowedItemsParam = searchParams.get('items');
+        const allowedItemsList = allowedItemsParam ? allowedItemsParam.split(',') : null;
+
         const campaignItems = allItems
             .filter(i => i.campaignId === foundCampaign.id && i.brandId === foundCampaign.brandId && i.isActive !== false)
+            .filter(i => allowedItemsList ? allowedItemsList.includes(i.id) : true)
             .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
         if (active) {
@@ -296,6 +369,10 @@ export function CampaignView() {
       recipientContact: deliveryForm.phone,
       company: currentUser?.company || '',
       campaignId: campaign!.id,
+      campaignName: campaign!.name,
+      campaignExpiry: campaign!.endDate || '',
+      scheduledDeliveryDate: deliveryForm.deliveryDate,
+      scheduledDeliveryTime: deliveryForm.timeSlot,
       items: orderItems,
       totalAmount: grandTotal,
       gstAmount: gstTotal,
@@ -403,7 +480,7 @@ export function CampaignView() {
       {/* Campaign Banner */}
       <div className="relative w-full h-80 bg-gray-900 overflow-hidden">
         <img 
-          src={brand.logo} 
+          src={brand.logo || undefined} 
           alt={brand.name} 
           className="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
         />
@@ -411,16 +488,85 @@ export function CampaignView() {
         <div className="relative z-10 h-full max-w-5xl mx-auto px-4 flex flex-col justify-end pb-10">
           <div className="flex items-center gap-4 mb-4">
             <div className="w-20 h-20 bg-white rounded-xl p-2 shadow-lg flex items-center justify-center">
-              <img src={brand.logo} alt={brand.name} className="max-w-full max-h-full object-contain" />
+              <img src={brand.logo || undefined} alt={brand.name} className="max-w-full max-h-full object-contain" />
             </div>
             <div>
-              <span className="text-red-400 font-bold uppercase tracking-wider text-sm">{brand.name}</span>
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span className="text-red-400 font-bold uppercase tracking-wider text-sm">{brand.name}</span>
+                <span className="bg-blue-100/20 border border-blue-200/50 text-blue-200 backdrop-blur-sm text-xs px-2 py-0.5 rounded flex items-center gap-1 font-semibold">
+                  <ShieldCheck size={12} /> Verified Merchant
+                </span>
+              </div>
               <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight">{campaign.name}</h1>
             </div>
           </div>
           <p className="text-gray-300 max-w-2xl text-lg">
             {brand.description}
           </p>
+
+          <div className="flex flex-wrap gap-4 pt-4">
+            {campaign.endDate && (
+               <div className="bg-red-900/40 border border-red-800 rounded-lg px-4 py-2 flex items-center gap-2">
+                 <Clock className="text-red-400" size={18} />
+                 <div>
+                   <p className="text-xs text-red-200">Order Window Closes</p>
+                   <p className="text-sm font-bold text-white">{new Date(campaign.endDate).toLocaleString()}</p>
+                 </div>
+               </div>
+            )}
+            
+            {campaign.fulfillmentSettings?.mode === 'FIXED' && campaign.fulfillmentSettings.fixedDeliveryDate && (
+               <div className="bg-blue-900/40 border border-blue-800 rounded-lg px-4 py-2 flex items-center gap-2">
+                 <MapPin className="text-blue-400" size={18} />
+                 <div>
+                   <p className="text-xs text-blue-200">Scheduled Delivery</p>
+                   <p className="text-sm font-bold text-white">{new Date(campaign.fulfillmentSettings.fixedDeliveryDate).toLocaleDateString()} | {campaign.fulfillmentSettings.fixedDeliveryTime}</p>
+                 </div>
+               </div>
+            )}
+
+            {campaign.socialProof?.enabled && (
+              <>
+                <div className="bg-yellow-900/40 border border-yellow-800 rounded-lg px-4 py-2 flex items-center gap-2">
+                 <Flame className="text-yellow-400" size={18} />
+                 <div>
+                   <p className="text-sm font-bold text-white">{campaign.socialProof.ordersPlaced}+ Ordered</p>
+                   <p className="text-xs text-yellow-200">High Demand</p>
+                 </div>
+               </div>
+               
+               <div className="bg-white/10 border border-white/20 rounded-lg px-4 py-2 flex flex-col justify-center">
+                 <div className="flex items-center gap-1">
+                   <Star className="text-yellow-400 fill-current" size={14} />
+                   <span className="text-sm font-bold text-white leading-none">{campaign.socialProof.rating}/5</span>
+                 </div>
+                 <p className="text-xs text-gray-300 mt-0.5">Top Rated</p>
+               </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Banner indicating Secure Checkout */}
+      <div className="w-full bg-green-50 border-b border-green-100 py-3 shadow-sm z-20 relative">
+        <div className="max-w-5xl mx-auto px-4 flex items-center justify-between text-xs sm:text-sm text-green-800 font-medium">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} className="text-green-600" />
+            <span>Secure Checkout by QwikMeal</span>
+          </div>
+          {campaign.endDate && !isCampaignExpired && timeLeft && (
+            <div className="flex items-center gap-2">
+               <Clock size={16} className="text-green-600" />
+               <span>Ends in: <strong className="tabular-nums">{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s</strong></span>
+            </div>
+          )}
+          {isCampaignExpired && (
+            <div className="flex items-center gap-2 text-red-600">
+               <Clock size={16} />
+               <span>Campaign Expired</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -489,27 +635,33 @@ export function CampaignView() {
                     <div className="space-y-4">
                       <h3 className="font-bold text-gray-900 border-b pb-2">Delivery Information</h3>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Address</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">House/Flat/Block No. & Street *</label>
                         <input required type="text" value={deliveryForm.address} onChange={e => setDeliveryForm({...deliveryForm, address: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="123 Main St, Apartment 4B" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Landmark</label>
                         <input type="text" value={deliveryForm.landmark} onChange={e => setDeliveryForm({...deliveryForm, landmark: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="Near Apollo Hospital" />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
+                          <input readOnly required type="text" value={deliveryForm.pincode} className="w-full border border-gray-300 rounded-lg px-4 py-2 bg-gray-50 text-gray-500" />
+                        </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                          <input required type="text" value={deliveryForm.city} onChange={e => setDeliveryForm({...deliveryForm, city: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="Mumbai" />
+                          <input readOnly required type="text" value={deliveryForm.city} className="w-full border border-gray-300 rounded-lg px-4 py-2 bg-gray-50 text-gray-500" />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                          <input required type="text" value={deliveryForm.state} onChange={e => setDeliveryForm({...deliveryForm, state: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="Maharashtra" />
+                          <input readOnly required type="text" value={deliveryForm.state} className="w-full border border-gray-300 rounded-lg px-4 py-2 bg-gray-50 text-gray-500" />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
-                        <input required type="text" value={deliveryForm.pincode} onChange={e => setDeliveryForm({...deliveryForm, pincode: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="400001" />
-                      </div>
+
+                      {deliveryForm.pincode && deliveryForm.city && (
+                        <div className="bg-green-50 text-green-700 p-2 rounded text-xs flex items-center gap-1 border border-green-100 mt-2">
+                          <MapPin size={14}/> Delivery available in {deliveryForm.city}, {deliveryForm.state} - {deliveryForm.pincode}
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -518,16 +670,33 @@ export function CampaignView() {
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date</label>
-                        <input required type="date" min={new Date().toISOString().split('T')[0]} value={deliveryForm.deliveryDate} onChange={e => setDeliveryForm({...deliveryForm, deliveryDate: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" />
+                        <input 
+                          required 
+                          type="date" 
+                          min={campaign?.fulfillmentSettings?.mode === 'RANGE' && campaign.fulfillmentSettings.rangeStartDate ? campaign.fulfillmentSettings.rangeStartDate : new Date().toISOString().split('T')[0]} 
+                          max={campaign?.fulfillmentSettings?.mode === 'RANGE' && campaign.fulfillmentSettings.rangeEndDate ? campaign.fulfillmentSettings.rangeEndDate : undefined}
+                          readOnly={campaign?.fulfillmentSettings?.mode === 'FIXED'}
+                          value={deliveryForm.deliveryDate} 
+                          onChange={e => setDeliveryForm({...deliveryForm, deliveryDate: e.target.value})} 
+                          className={`w-full border rounded-lg px-4 py-2 ${campaign?.fulfillmentSettings?.mode === 'FIXED' ? 'bg-gray-50 border-gray-200 text-gray-600' : 'border-gray-300'}`} 
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Time Slot</label>
-                        <select required value={deliveryForm.timeSlot} onChange={e => setDeliveryForm({...deliveryForm, timeSlot: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2">
-                          <option>Lunch (12:30 PM - 1:30 PM)</option>
-                          <option>Late Lunch (1:30 PM - 2:30 PM)</option>
-                          <option>Evening Snacks (4:30 PM - 5:30 PM)</option>
-                          <option>Dinner (7:30 PM - 8:30 PM)</option>
-                        </select>
+                        {campaign?.fulfillmentSettings?.mode === 'FIXED' ? (
+                          <input 
+                            readOnly
+                            value={deliveryForm.timeSlot}
+                            className="w-full border border-gray-200 rounded-lg px-4 py-2 bg-gray-50 text-gray-600"
+                          />
+                        ) : (
+                          <select required value={deliveryForm.timeSlot} onChange={e => setDeliveryForm({...deliveryForm, timeSlot: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2">
+                            <option>Lunch (12:30 PM - 1:30 PM)</option>
+                            <option>Late Lunch (1:30 PM - 2:30 PM)</option>
+                            <option>Evening Snacks (4:30 PM - 5:30 PM)</option>
+                            <option>Dinner (7:30 PM - 8:30 PM)</option>
+                          </select>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -598,7 +767,14 @@ export function CampaignView() {
                     Available Items ({items.length})
                   </h2>
 
-                  {!isServiceable && !!deliveryPinCode && (
+                  {isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center mb-8">
+                      <p className="text-green-800 font-semibold">Great! We serve at this location.</p>
+                      <p className="text-green-700 text-sm">Let's start building your order.</p>
+                    </div>
+                  )}
+
+                  {!isServiceable && !!deliveryPinCode && !isCampaignExpired && (
                     <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-8">
                       <p className="text-red-700 font-semibold mb-2">Sorry, we currently do not deliver to this location ({deliveryPinCode}).</p>
                       <p className="text-red-600 text-sm">Please raise your request using the 'Plan My Event' link below or provide a different pincode.</p>
@@ -610,7 +786,19 @@ export function CampaignView() {
                     </div>
                   )}
 
-                  <div className={`grid sm:grid-cols-2 gap-6 ${(!isServiceable && !!deliveryPinCode) ? 'opacity-50 pointer-events-none' : ''}`}>
+                  {isCampaignExpired && (
+                    <div className="bg-gray-100 border border-gray-300 rounded-xl p-6 text-center mb-8">
+                      <Clock size={32} className="mx-auto text-gray-400 mb-3" />
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">Campaign Has Ended</h3>
+                      <p className="text-gray-600 mb-4">This campaign has expired and is no longer accepting new orders.</p>
+                      <p className="text-sm font-medium text-gray-700">Please plan your order with us directly. We require at least 24 hours notice to serve your order.</p>
+                      <button onClick={() => { setShowEventPrompt(true); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}} className="mt-4 inline-block bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-700 transition">
+                        Plan My Order
+                      </button>
+                    </div>
+                  )}
+
+                  <div className={`grid sm:grid-cols-2 gap-6 ${(!isServiceable && !!deliveryPinCode) || isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
                     {items.length === 0 ? (
                       <p className="text-gray-500">No items configured for this campaign.</p>
                     ) : items.map(item => {
@@ -620,7 +808,7 @@ export function CampaignView() {
                       return (
                       <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col">
                         <div className="h-48 overflow-hidden bg-gray-100">
-                          <img src={item.mealImage} alt={item.name} className="w-full h-full object-cover" />
+                          <img src={item.mealImage || undefined} alt={item.name} className="w-full h-full object-cover" />
                         </div>
                         <div className="p-4 flex-1 flex flex-col">
                           <div className="flex items-center gap-2 mb-2">
@@ -905,9 +1093,10 @@ export function CampaignView() {
                     {checkoutStep === 'PRODUCTS' && (
                       <button 
                         onClick={proceedToDelivery}
-                        className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition shadow-lg mt-4"
+                        disabled={isCampaignExpired}
+                        className={`w-full font-bold py-3 px-4 rounded-lg transition shadow-lg mt-4 ${isCampaignExpired ? 'bg-gray-400 cursor-not-allowed text-white' : (campaign.ctaConfig?.theme === 'teal' ? 'bg-teal-600 hover:bg-teal-700 text-white' : campaign.ctaConfig?.theme === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' : campaign.ctaConfig?.theme === 'orange' ? 'bg-orange-600 hover:bg-orange-700 text-white' : campaign.ctaConfig?.theme === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white')}`}
                       >
-                        Checkout (₹{getChargesAndBenefits().grandTotal.toFixed(2)})
+                        {isCampaignExpired ? 'Campaign Expired' : `${campaign.ctaConfig?.text || 'Order Now'} (₹${getChargesAndBenefits().grandTotal.toFixed(2)})`}
                       </button>
                     )}
 
@@ -915,7 +1104,7 @@ export function CampaignView() {
                       <button 
                         form="delivery-form"
                         type="submit"
-                        className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition shadow-lg mt-4"
+                        className={`w-full font-bold py-3 px-4 rounded-lg transition shadow-lg mt-4 ${campaign.ctaConfig?.theme === 'teal' ? 'bg-teal-600 hover:bg-teal-700 text-white' : campaign.ctaConfig?.theme === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' : campaign.ctaConfig?.theme === 'orange' ? 'bg-orange-600 hover:bg-orange-700 text-white' : campaign.ctaConfig?.theme === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}
                       >
                         Proceed to Payment
                       </button>
@@ -924,13 +1113,34 @@ export function CampaignView() {
                     {checkoutStep === 'PAYMENT' && (
                       <button 
                         onClick={submitOrder}
-                        className="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition shadow-lg mt-4 flex items-center justify-center gap-2"
+                        className={`w-full font-bold py-3 px-4 rounded-lg transition shadow-lg mt-4 flex items-center justify-center gap-2 ${campaign.ctaConfig?.theme === 'teal' ? 'bg-teal-600 hover:bg-teal-700 text-white' : campaign.ctaConfig?.theme === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' : campaign.ctaConfig?.theme === 'orange' ? 'bg-orange-600 hover:bg-orange-700 text-white' : campaign.ctaConfig?.theme === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}
                       >
                         <CreditCard size={18} /> Place Order (₹{getChargesAndBenefits().grandTotal.toFixed(2)})
                       </button>
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Customer Support Info Section */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mt-6">
+                <div className="bg-gray-50 border-b border-gray-200 px-6 py-4 flex items-center gap-2">
+                  <Headset size={20} className="text-gray-500" />
+                  <h3 className="font-bold text-gray-900">Customer Support</h3>
+                </div>
+                <div className="p-6">
+                   <p className="text-sm text-gray-600 mb-4">Our support team is available from 9 AM to 9 PM to assist you with your orders.</p>
+                   <div className="flex flex-col gap-3">
+                     <a href={`tel:${brand.phone || '+918000000000'}`} className="flex items-center gap-3 text-gray-700 hover:text-indigo-600 transition">
+                       <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-100"><Phone size={16} className="text-indigo-600" /></div>
+                       <span className="font-medium text-sm">{brand.phone || '+91 8000 000 000'}</span>
+                     </a>
+                     <a href={`mailto:${brand.email || 'support@qwikmeal.com'}`} className="flex items-center gap-3 text-gray-700 hover:text-indigo-600 transition">
+                       <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-100"><Mail size={16} className="text-indigo-600" /></div>
+                       <span className="font-medium text-sm text-ellipsis overflow-hidden whitespace-nowrap">{brand.email || 'support@qwikmeal.com'}</span>
+                     </a>
+                   </div>
+                </div>
               </div>
             </div>
           )}

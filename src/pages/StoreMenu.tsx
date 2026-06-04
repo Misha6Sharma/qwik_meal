@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, Plus, Minus, CreditCard, ShoppingBag, ArrowLeft, User as UserIcon, Users, Trash2, Calendar, Clock, MapPin } from 'lucide-react';
 import { mockMenuItems } from '../data.mock';
 import { getBrands } from '../brands';
@@ -40,10 +40,13 @@ export function StoreMenu() {
   const [orderVariant, setOrderVariant] = useState<OrderVariant>('SELF');
   
   // Checkout form state
-  const [recipientName, setRecipientName] = useState('');
+  const [recipientName, setRecipientName] = useState(user?.name || '');
   const [recipientContact, setRecipientContact] = useState('');
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState(user?.email || '');
+  const [deliveryHouseNo, setDeliveryHouseNo] = useState('');
+  const [deliveryStreet, setDeliveryStreet] = useState('');
+  const [deliveryCity, setDeliveryCity] = useState('');
+  const [deliveryState, setDeliveryState] = useState('');
   const [deliveryPinCode, setDeliveryPinCode] = useState('');
   const [deliveryContact, setDeliveryContact] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
@@ -53,6 +56,11 @@ export function StoreMenu() {
   
   const activeCampaigns = allCampaigns.filter(c => c.brandId === activeBrandId && c.isActive);
   const currentCampaign = activeCampaignId ? allCampaigns.find(c => c.id === activeCampaignId) : null;
+  
+  const isCampaignExpired = useMemo(() => {
+    if (!currentCampaign?.endDate) return false;
+    return new Date() > new Date(currentCampaign.endDate);
+  }, [currentCampaign]);
   
   const validateServiceability = () => {
     if (!currentCampaign?.serviceability?.enabled) return true;
@@ -90,6 +98,43 @@ export function StoreMenu() {
       return () => clearTimeout(handler);
     }
   }, [deliveryPinCode, activeCampaignId, isServiceable]);
+
+  useEffect(() => {
+    if (deliveryPinCode && deliveryPinCode.length === 6 && isServiceable) {
+      fetch(`https://api.postalpincode.in/pincode/${deliveryPinCode}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data[0] && data[0].Status === 'Success') {
+            const postOffice = data[0].PostOffice[0];
+            setDeliveryCity(postOffice.District || postOffice.Block || '');
+            setDeliveryState(postOffice.State || '');
+          } else {
+             setDeliveryCity('');
+             setDeliveryState('');
+          }
+        })
+        .catch(() => {
+           setDeliveryCity('');
+           setDeliveryState('');
+        });
+    } else {
+       setDeliveryCity('');
+       setDeliveryState('');
+    }
+  }, [deliveryPinCode, isServiceable]);
+
+  useEffect(() => {
+    if (currentCampaign && currentCampaign.fulfillmentSettings) {
+      const mode = currentCampaign.fulfillmentSettings.mode;
+      if (mode === 'FIXED') {
+        setDeliveryDate(currentCampaign.fulfillmentSettings.fixedDeliveryDate || '');
+        setDeliveryTime(currentCampaign.fulfillmentSettings.fixedDeliveryTime || '');
+      } else if (mode === 'RANGE') {
+        const todayStr = new Date().toISOString().split('T')[0];
+        setDeliveryDate(currentCampaign.fulfillmentSettings.rangeStartDate || todayStr);
+      }
+    }
+  }, [currentCampaign]);
 
   const activeMenuItems = allMenuItems.filter(i => 
     i.campaignId === activeCampaignId && 
@@ -131,7 +176,7 @@ export function StoreMenu() {
     setCheckoutError('');
 
     if (orderVariant === 'OTHER') {
-      if (!recipientName || !recipientContact || !deliveryAddress || !deliveryPinCode || !deliveryContact || !deliveryDate || !deliveryTime) {
+      if (!recipientName || !recipientContact || !deliveryHouseNo || !deliveryStreet || !deliveryPinCode || !deliveryContact || !deliveryDate || !deliveryTime) {
         setCheckoutError('Please fill all mandatory fields including delivery schedule.');
         return;
       }
@@ -140,7 +185,7 @@ export function StoreMenu() {
         return;
       }
     } else {
-      if (!deliveryAddress || !deliveryContact || !deliveryPinCode || !deliveryDate || !deliveryTime) {
+      if (!deliveryHouseNo || !deliveryStreet || !deliveryContact || !deliveryPinCode || !deliveryDate || !deliveryTime) {
          setCheckoutError('Delivery address, contact and scheduling are required.');
          return;
       }
@@ -175,6 +220,11 @@ export function StoreMenu() {
     const order = {
       id: orderId,
       userId: user?.id || 'guest',
+      campaignId: activeCampaignId || undefined,
+      campaignName: currentCampaign?.name,
+      campaignExpiry: currentCampaign?.endDate || '',
+      scheduledDeliveryDate: deliveryDate,
+      scheduledDeliveryTime: deliveryTime,
       items: orderItems,
       totalAmount: finalTotal,
       status: 'PROCESSING',
@@ -184,7 +234,7 @@ export function StoreMenu() {
       recipientName,
       recipientContact,
       recipientEmail,
-      deliveryAddress,
+      deliveryAddress: `${deliveryHouseNo}, ${deliveryStreet}${deliveryCity ? ', ' + deliveryCity : ''}${deliveryState ? ', ' + deliveryState : ''}`,
       deliveryPinCode,
       deliveryContact,
       deliveryDate,
@@ -262,7 +312,7 @@ export function StoreMenu() {
                     }`}
                   >
                     <img 
-                      src={brand.logo} 
+                      src={brand.logo || undefined} 
                       alt={brand.name} 
                       referrerPolicy="no-referrer" 
                       className="h-12 w-12 object-contain mix-blend-multiply rounded-full" 
@@ -367,6 +417,22 @@ export function StoreMenu() {
                 </button>
               </div>
 
+              {isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center mb-6">
+                  <p className="text-green-800 font-semibold">Great! We serve at this location.</p>
+                  <p className="text-green-700 text-sm">Let's start building your order.</p>
+                </div>
+              )}
+
+              {isCampaignExpired && (
+                <div className="bg-gray-100 border border-gray-300 rounded-xl p-6 text-center mb-6">
+                  <Clock size={32} className="mx-auto text-gray-400 mb-3" />
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Campaign Has Ended</h3>
+                  <p className="text-gray-600 mb-4">This campaign has expired and is no longer accepting new orders.</p>
+                  <p className="text-sm font-medium text-gray-700">Please plan your order with us directly. We require at least 24 hours notice to serve your order.</p>
+                </div>
+              )}
+
               {currentCampaign?.serviceability?.enabled && (currentCampaign.serviceability.coverageType === 'PINCODES' || currentCampaign.serviceability.coverageType === 'CITIES') && (!deliveryPinCode || deliveryPinCode.length < 6) ? (
                 <div className="bg-white border-2 border-indigo-100 border-dashed rounded-3xl p-10 text-center flex flex-col items-center justify-center">
                    <div className="bg-indigo-50 w-20 h-20 rounded-full flex items-center justify-center mb-4">
@@ -376,7 +442,7 @@ export function StoreMenu() {
                    <p className="text-gray-500 mb-6 max-w-md">Please enter your 6-digit delivery pincode in the top banner to see if we deliver to your location before exploring the menu and building your cart.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 relative ${isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
                   {!isServiceable && !!deliveryPinCode && (
                     <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-20 flex items-start justify-center pt-20 rounded-3xl">
                       <div className="bg-white shadow-xl rounded-2xl p-6 text-center max-w-sm border border-red-100">
@@ -390,7 +456,7 @@ export function StoreMenu() {
                   <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition group">
                     <div className="h-48 overflow-hidden relative">
                       <img 
-                        src={item.mealImage} 
+                        src={item.mealImage || undefined} 
                         alt={item.name} 
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -610,32 +676,68 @@ export function StoreMenu() {
                     <div className="space-y-4 pt-2">
                       <h4 className="font-bold text-sm border-b pb-2">Delivery Details</h4>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Full Address *</label>
-                        <textarea value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} required rows={2} className="w-full border rounded px-3 py-1.5 text-sm resize-none"></textarea>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">House/Flat/Block No. *</label>
+                        <input type="text" value={deliveryHouseNo} onChange={e => setDeliveryHouseNo(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="e.g. Flat 4B, XYZ Apartments" />
                       </div>
+                      
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Street/Area/Landmark *</label>
+                        <input type="text" value={deliveryStreet} onChange={e => setDeliveryStreet(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="e.g. Near Main Square, MG Road" />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Pin Code</label>
+                          <input type="text" value={deliveryPinCode} onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} required className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50" readOnly={isServiceable && deliveryPinCode.length === 6} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
+                          <input type="text" value={deliveryCity} readOnly className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" placeholder="Auto-filled" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
+                          <input type="text" value={deliveryState} readOnly className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" placeholder="Auto-filled" />
+                        </div>
+                      </div>
+                      
+                      {isServiceable && deliveryPinCode.length === 6 && deliveryCity && (
+                        <div className="bg-green-50 text-green-700 p-2 rounded text-xs flex items-center gap-1 border border-green-100">
+                          <MapPin size={14}/> Delivery available in {deliveryCity}, {deliveryState} - {deliveryPinCode}
+                        </div>
+                      )}
+
+                      {!isServiceable && deliveryPinCode && (
+                        <p className="text-xs text-red-600 mt-1">Sorry, we currently do not deliver to this location. Please raise your request using Plan My Event link given below.</p>
+                      )}
                       
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1"><Calendar size={12}/> Delivery Date *</label>
-                          <input type="date" min={new Date().toISOString().split('T')[0]} value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" />
+                          <input 
+                            type="date" 
+                            min={currentCampaign?.fulfillmentSettings?.mode === 'RANGE' && currentCampaign.fulfillmentSettings.rangeStartDate ? currentCampaign.fulfillmentSettings.rangeStartDate : new Date().toISOString().split('T')[0]}
+                            max={currentCampaign?.fulfillmentSettings?.mode === 'RANGE' && currentCampaign.fulfillmentSettings.rangeEndDate ? currentCampaign.fulfillmentSettings.rangeEndDate : undefined}
+                            readOnly={currentCampaign?.fulfillmentSettings?.mode === 'FIXED'}
+                            value={deliveryDate} 
+                            onChange={e => setDeliveryDate(e.target.value)} 
+                            required 
+                            className={`w-full border rounded px-3 py-1.5 text-sm ${currentCampaign?.fulfillmentSettings?.mode === 'FIXED' ? 'bg-gray-50 border-gray-200 text-gray-500' : ''}`} 
+                          />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Delivery Time *</label>
-                          <input type="time" value={deliveryTime} onChange={e => setDeliveryTime(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" />
+                          {currentCampaign?.fulfillmentSettings?.mode === 'FIXED' ? (
+                            <input type="text" readOnly value={deliveryTime} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" />
+                          ) : (
+                            <input type="time" value={deliveryTime} onChange={e => setDeliveryTime(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" />
+                          )}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">Delivery Contact *</label>
                           <input type="tel" value={deliveryContact} onChange={e => setDeliveryContact(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="10 digits" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Pin Code *</label>
-                          <input type="text" value={deliveryPinCode} onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} required className="w-full border rounded px-3 py-1.5 text-sm" />
-                          {!isServiceable && deliveryPinCode && (
-                            <p className="text-xs text-red-600 mt-1">Sorry, we currently do not deliver to this location. Please raise your request using Plan My Event link given below</p>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -668,9 +770,10 @@ export function StoreMenu() {
                    {!showCheckout ? (
                     <button 
                       onClick={() => setShowCheckout(true)}
-                      className="bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold py-2 px-6 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
+                      disabled={isCampaignExpired}
+                      className={`font-bold py-2 px-6 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm ${isCampaignExpired ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900 cursor-pointer'}`}
                     >
-                      Process <ArrowLeft size={16} className="rotate-180" />
+                      {isCampaignExpired ? 'Expired' : 'Process'} {!isCampaignExpired && <ArrowLeft size={16} className="rotate-180" />}
                     </button>
                    ) : orderSuccess ? (
                     <button 

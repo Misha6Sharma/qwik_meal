@@ -67,6 +67,18 @@ export interface CampaignServiceability {
   storeIds?: string[];
 }
 
+export type FulfillmentMode = 'FIXED' | 'RANGE' | 'OPEN';
+
+export interface FulfillmentSettings {
+  mode: FulfillmentMode;
+  fixedDeliveryDate?: string;
+  fixedDeliveryTime?: string;
+  fixedPickupDate?: string;
+  fixedPickupTime?: string;
+  rangeStartDate?: string;
+  rangeEndDate?: string;
+}
+
 export type Campaign = {
   id: string;
   brandId: string;
@@ -74,6 +86,9 @@ export type Campaign = {
   isActive: boolean;
   sharePrivacy?: CampaignPrivacy;
   serviceability?: CampaignServiceability;
+  startDate?: string;
+  endDate?: string;
+  fulfillmentSettings?: FulfillmentSettings;
   benefits?: {
     freeDelivery: boolean;
     minOrderValueForFreeDelivery: number;
@@ -82,6 +97,17 @@ export type Campaign = {
     waivePackagingCharge: boolean;
     processingFeeAmount: number;
     waiveProcessingFee: boolean;
+  };
+  socialProof?: {
+    enabled: boolean;
+    ordersPlaced: number;
+    rating: number;
+    showPopularity: boolean;
+  };
+  ctaConfig?: {
+    enabled: boolean;
+    text: string;
+    theme: string;
   };
 };
 
@@ -144,6 +170,10 @@ export type Order = {
   id: string;
   userId: string;
   campaignId?: string;
+  campaignName?: string;
+  campaignExpiry?: string;
+  scheduledDeliveryDate?: string;
+  scheduledDeliveryTime?: string;
   items: CartItem[];
   totalAmount: number;
   gstAmount?: number;

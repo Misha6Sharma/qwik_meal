@@ -55,7 +55,7 @@ export function ImageUploadCropper({
       <div className="flex gap-4 items-center">
         {currentImage && !imageSrc && (
           <div className="w-16 h-16 rounded overflow-hidden border border-gray-200">
-            <img src={currentImage} alt="Current" className="w-full h-full object-cover" />
+            <img src={currentImage || undefined} alt="Current" className="w-full h-full object-cover" />
           </div>
         )}
         <button

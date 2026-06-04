@@ -39,6 +39,26 @@ export const updateCampaignBenefits = async (campaignId: string, benefits: any) 
   return await getCampaigns();
 };
 
+export const updateCampaignSocialProof = async (campaignId: string, socialProof: any) => {
+  const campaigns = await getCampaigns();
+  const cToUpdate = campaigns.find(c => c.id === campaignId);
+  if (cToUpdate) {
+    const updatedCampaign = { ...cToUpdate, socialProof };
+    await dbService.updateCampaign(updatedCampaign);
+  }
+  return await getCampaigns();
+};
+
+export const updateCampaignCTA = async (campaignId: string, ctaConfig: any) => {
+  const campaigns = await getCampaigns();
+  const cToUpdate = campaigns.find(c => c.id === campaignId);
+  if (cToUpdate) {
+    const updatedCampaign = { ...cToUpdate, ctaConfig };
+    await dbService.updateCampaign(updatedCampaign);
+  }
+  return await getCampaigns();
+};
+
 export const updateCampaignServiceability = async (campaignId: string, serviceability: any) => {
   const campaigns = await getCampaigns();
   const cToUpdate = campaigns.find(c => c.id === campaignId);
@@ -48,3 +68,24 @@ export const updateCampaignServiceability = async (campaignId: string, serviceab
   }
   return await getCampaigns();
 };
+
+export const updateCampaignTimeline = async (campaignId: string, startDate?: string, endDate?: string) => {
+  const campaigns = await getCampaigns();
+  const cToUpdate = campaigns.find(c => c.id === campaignId);
+  if (cToUpdate) {
+    const updatedCampaign = { ...cToUpdate, startDate, endDate };
+    await dbService.updateCampaign(updatedCampaign);
+  }
+  return await getCampaigns();
+};
+
+export const updateCampaignFulfillment = async (campaignId: string, fulfillmentSettings: any) => {
+  const campaigns = await getCampaigns();
+  const cToUpdate = campaigns.find(c => c.id === campaignId);
+  if (cToUpdate) {
+    const updatedCampaign = { ...cToUpdate, fulfillmentSettings };
+    await dbService.updateCampaign(updatedCampaign);
+  }
+  return await getCampaigns();
+};
+
