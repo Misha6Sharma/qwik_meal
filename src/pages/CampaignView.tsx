@@ -56,8 +56,10 @@ export function CampaignView() {
   const [deliveryPinCode, setDeliveryPinCode] = useState('');
   
   const validateServiceability = () => {
-    if (!campaign?.serviceability?.enabled) return true;
-    const { coverageType, pincodes } = campaign.serviceability;
+    // Brand serviceability validation overrides campaign serviceability? The prompt says "Validate the customer's delivery address against the serviceability rules configured for that specific brand."
+    // Let's use brand.serviceability.
+    if (!brand?.serviceability?.enabled) return true;
+    const { coverageType, pincodes } = brand.serviceability;
     
     if (coverageType === 'ALL_INDIA') return true;
     
@@ -179,7 +181,7 @@ export function CampaignView() {
     const fetchCampaignData = async () => {
       try {
         const allCampaigns = await getCampaigns();
-        const foundCampaign = allCampaigns.find(c => c.id === id);
+        const foundCampaign = allCampaigns.find(c => c.id === id || c.slug === id);
         if (!foundCampaign || !foundCampaign.isActive) {
           if (active) setLoading(false);
           return;
@@ -340,6 +342,10 @@ export function CampaignView() {
   
   const proceedToPayment = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isServiceable) {
+      alert("Sorry, this brand is currently unavailable at your selected delivery location.");
+      return;
+    }
     setCheckoutStep('PAYMENT');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -476,7 +482,7 @@ export function CampaignView() {
   }
 
   return (
-    <div className="w-full bg-gray-50 min-h-screen pb-20">
+    <div className="w-full bg-gray-50 min-h-dvh pb-20 pt-[env(safe-area-inset-top,0px)]">
       {/* Campaign Banner */}
       <div className="relative w-full h-80 bg-gray-900 overflow-hidden">
         <img 
@@ -735,7 +741,7 @@ export function CampaignView() {
             ) : (
               <div>
 
-                {campaign?.serviceability?.enabled && (campaign.serviceability.coverageType === 'PINCODES' || campaign.serviceability.coverageType === 'CITIES') && (
+                {brand?.serviceability?.enabled && (brand.serviceability.coverageType === 'PINCODES' || brand.serviceability.coverageType === 'CITIES') && (
                   <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4 justify-between mb-8">
                     <div className="text-indigo-900">
                       <p className="font-semibold text-sm">Campaign Delivery Area</p>
@@ -753,7 +759,7 @@ export function CampaignView() {
                   </div>
                 )}
                 
-                {campaign?.serviceability?.enabled && (campaign.serviceability.coverageType === 'PINCODES' || campaign.serviceability.coverageType === 'CITIES') && (!deliveryPinCode || deliveryPinCode.length < 6) ? (
+                {brand?.serviceability?.enabled && (brand.serviceability.coverageType === 'PINCODES' || brand.serviceability.coverageType === 'CITIES') && (!deliveryPinCode || deliveryPinCode.length < 6) ? (
                   <div className="bg-white border-2 border-indigo-100 border-dashed rounded-3xl p-10 text-center flex flex-col items-center justify-center mb-8">
                      <div className="bg-indigo-50 w-20 h-20 rounded-full flex items-center justify-center mb-4">
                        <MapPin size={32} className="text-indigo-600" />
@@ -808,7 +814,7 @@ export function CampaignView() {
                       return (
                       <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col">
                         <div className="h-48 overflow-hidden bg-gray-100">
-                          <img src={item.mealImage || undefined} alt={item.name} className="w-full h-full object-cover" />
+                          <img src={item.mealImage || undefined} alt={item.name} loading="lazy" className="w-full h-full object-contain" />
                         </div>
                         <div className="p-4 flex-1 flex flex-col">
                           <div className="flex items-center gap-2 mb-2">

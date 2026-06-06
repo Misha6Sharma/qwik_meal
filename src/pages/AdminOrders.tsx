@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Clock, Download } from 'lucide-react';
+import { Package, Clock, Download, QrCode } from 'lucide-react';
 import { authService } from '../auth';
 import { dbService } from '../db';
 import { Order, DeliveryStatus, PaymentStatus, RefundStatus } from '../types';
@@ -9,6 +9,19 @@ export function AdminOrders() {
   const user = authService.getUser();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifyResult, setVerifyResult] = useState<{success: boolean, msg: string}>({success: false, msg: ''});
+
+  const handleVerifyCode = async () => {
+    const order = orders.find(o => o.pickupCode === verifyCode && o.orderType === 'PICKUP');
+    if (order) {
+       await updateOrderSettings(order.id, 'pickupStatus' as any, 'COMPLETED');
+       setVerifyResult({success: true, msg: `Verified successfully! Order ${order.id} marked as PICKED UP.`});
+    } else {
+       setVerifyResult({success: false, msg: 'Invalid Code or Order not found.'});
+    }
+  };
 
   useEffect(() => {
     loadOrders();
@@ -82,13 +95,45 @@ export function AdminOrders() {
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Order Management</h1>
           <p className="text-gray-500 mt-2">View and manage customer orders.</p>
         </div>
-        <button 
-          onClick={() => setIsExportModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition shadow-sm whitespace-nowrap"
-        >
-          <Download size={18} /> Download Campaign Orders (CSV)
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setIsVerifyModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition shadow-sm whitespace-nowrap"
+          >
+            <QrCode size={18} /> Verify Pickup Code
+          </button>
+          <button 
+            onClick={() => setIsExportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition shadow-sm whitespace-nowrap"
+          >
+            <Download size={18} /> Download Campaign Orders (CSV)
+          </button>
+        </div>
       </div>
+
+      {isVerifyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 relative">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 relative">
+            <h3 className="text-xl font-bold mb-4 font-sans text-gray-900">Verify Pickup Code</h3>
+            <input 
+              type="text" 
+              placeholder="Enter 6-digit Code" 
+              value={verifyCode}
+              onChange={e => setVerifyCode(e.target.value.toUpperCase())}
+              className="w-full text-lg tracking-widest text-center font-bold px-4 py-3 border-2 border-indigo-200 rounded-lg focus:border-indigo-500 outline-none mb-4 uppercase"
+            />
+            {verifyResult.msg && (
+               <div className={`mb-4 text-sm font-semibold p-2 rounded ${verifyResult.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                 {verifyResult.msg}
+               </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => {setIsVerifyModalOpen(false); setVerifyResult({success:false,msg:''}); setVerifyCode('');}} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2 rounded-lg font-bold">Close</button>
+              <button onClick={handleVerifyCode} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-bold">Verify</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ExportOrdersModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
 
@@ -99,6 +144,7 @@ export function AdminOrders() {
               <tr>
                 <th className="px-6 py-4 font-semibold">Order ID</th>
                 <th className="px-6 py-4 font-semibold">Date</th>
+                <th className="px-6 py-4 font-semibold">Type</th>
                 <th className="px-6 py-4 font-semibold">Items</th>
                 <th className="px-6 py-4 font-semibold">Status</th>
                 {user?.role === 'SUPER_ADMIN' && (
@@ -137,6 +183,16 @@ export function AdminOrders() {
                       )}
                     </td>
                     <td className="px-6 py-4">
+                      {order.orderType === 'PICKUP' ? (
+                        <div>
+                          <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded">PICKUP</span>
+                          {order.pickupCode && <div className="mt-1 text-xs font-mono font-bold text-gray-500">Code: {order.pickupCode}</div>}
+                        </div>
+                      ) : (
+                        <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-1 rounded">DELIVERY</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
                       <div className="text-sm max-w-xs">
                         {order.items.map((item, i) => (
                            user?.role === 'BRAND_ADMIN' && user.brandId !== item.menuItem.brandId ? null : (
@@ -148,13 +204,23 @@ export function AdminOrders() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <select 
-                        value={order.status} 
-                        onChange={(e) => updateOrderSettings(order.id, 'status', e.target.value)}
-                        className="bg-white border border-gray-200 text-sm rounded-md px-2 py-1 focus:ring-1 focus:ring-red-500"
-                      >
-                        {deliveryStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      {order.orderType === 'PICKUP' ? (
+                        <select 
+                          value={order.pickupStatus || 'PENDING'} 
+                          onChange={(e) => updateOrderSettings(order.id, 'pickupStatus' as any, e.target.value)}
+                          className="bg-white border border-gray-200 text-sm font-semibold rounded-md px-2 py-1 focus:ring-1 focus:ring-indigo-500 text-indigo-700"
+                        >
+                          {['PENDING', 'READY', 'COMPLETED', 'CANCELLED'].map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      ) : (
+                        <select 
+                          value={order.status} 
+                          onChange={(e) => updateOrderSettings(order.id, 'status', e.target.value)}
+                          className="bg-white border border-gray-200 text-sm rounded-md px-2 py-1 focus:ring-1 focus:ring-red-500"
+                        >
+                          {deliveryStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
                     </td>
                     {user?.role === 'SUPER_ADMIN' && (
                       <>

@@ -19,6 +19,16 @@ export const updateCampaignName = async (campaignId: string, newName: string) =>
   return await getCampaigns();
 };
 
+export const updateCampaignSlug = async (campaignId: string, newSlug: string) => {
+  const campaigns = await getCampaigns();
+  const cToUpdate = campaigns.find(c => c.id === campaignId);
+  if (cToUpdate) {
+    const updatedCampaign = { ...cToUpdate, slug: newSlug };
+    await dbService.updateCampaign(updatedCampaign);
+  }
+  return await getCampaigns();
+};
+
 export const updateCampaignPrivacy = async (campaignId: string, sharePrivacy: 'PUBLIC' | 'PRIVATE' | 'CUSTOMERS') => {
   const campaigns = await getCampaigns();
   const cToUpdate = campaigns.find(c => c.id === campaignId);
@@ -54,16 +64,6 @@ export const updateCampaignCTA = async (campaignId: string, ctaConfig: any) => {
   const cToUpdate = campaigns.find(c => c.id === campaignId);
   if (cToUpdate) {
     const updatedCampaign = { ...cToUpdate, ctaConfig };
-    await dbService.updateCampaign(updatedCampaign);
-  }
-  return await getCampaigns();
-};
-
-export const updateCampaignServiceability = async (campaignId: string, serviceability: any) => {
-  const campaigns = await getCampaigns();
-  const cToUpdate = campaigns.find(c => c.id === campaignId);
-  if (cToUpdate) {
-    const updatedCampaign = { ...cToUpdate, serviceability };
     await dbService.updateCampaign(updatedCampaign);
   }
   return await getCampaigns();

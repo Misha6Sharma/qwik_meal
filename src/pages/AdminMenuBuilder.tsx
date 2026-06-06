@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Image as ImageIcon, Save, Trash2, CheckCircle2, Edit2, X, Upload, BarChart3, Users, DollarSign, ShoppingBag, Eye, EyeOff, Share2, Copy, MessageSquare, Mail, Link2, Download, MapPin, Calendar, Clock } from 'lucide-react';
-import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, CampaignServiceability, FulfillmentSettings } from '../types';
+import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, ServiceabilitySettings, FulfillmentSettings } from '../types';
 import { getBrands } from '../brands';
-import { updateCampaignCTA, updateCampaignSocialProof, getCampaigns, updateCampaignName, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignServiceability, updateCampaignTimeline, updateCampaignFulfillment } from '../campaigns';
+import { updateCampaignCTA, updateCampaignSocialProof, getCampaigns, updateCampaignName, updateCampaignSlug, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignTimeline, updateCampaignFulfillment } from '../campaigns';
 import { authService } from '../auth';
 import { dbService } from '../db';
+import { storage } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { ExportOrdersModal } from '../components/ExportOrdersModal';
 import { ImageUploadCropper } from '../components/ImageUploadCropper';
+import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
+import { toJpeg } from 'html-to-image';
 
 import imgFallback from '../assets/images/img_1543339308.jpg';
 
@@ -78,8 +82,10 @@ export function AdminMenuBuilder() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [shareCustomerName, setShareCustomerName] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
+  const [waIncludeQR, setWaIncludeQR] = useState(true);
+  const [waIncludeBanner, setWaIncludeBanner] = useState(true);
+  const [waUseShortUrl, setWaUseShortUrl] = useState(true);
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
-  const [showServiceabilityModal, setShowServiceabilityModal] = useState(false);
   const [showTimelineModal, setShowTimelineModal] = useState(false);
   const [timelineForm, setTimelineForm] = useState({ startDate: '', endDate: '' });
   const [showFulfillmentModal, setShowFulfillmentModal] = useState(false);
@@ -104,14 +110,6 @@ export function AdminMenuBuilder() {
     enabled: true,
     text: 'Order Now',
     theme: 'teal'
-  });
-  const [serviceabilityForm, setServiceabilityForm] = useState<CampaignServiceability>({
-    enabled: false,
-    coverageType: 'ALL_INDIA',
-    pincodes: [],
-    cities: [],
-    radiusInfo: { lat: 0, lng: 0, radiusKm: 5 },
-    storeIds: []
   });
   const [benefitsForm, setBenefitsForm] = useState({
     freeDelivery: false,
@@ -502,29 +500,6 @@ export function AdminMenuBuilder() {
             title="Share Campaign Link"
           >
             Share Options
-          </button>
-          <button
-            onClick={() => {
-              const c = allCampaigns.find((camp) => camp.id === campaignId);
-              if (c?.serviceability) {
-                setServiceabilityForm(c.serviceability);
-              } else {
-                setServiceabilityForm({
-                  enabled: false,
-                  coverageType: 'ALL_INDIA',
-                  pincodes: [],
-                  cities: [],
-                  radiusInfo: { lat: 0, lng: 0, radiusKm: 5 },
-                  storeIds: []
-                });
-              }
-              setShowServiceabilityModal(true);
-            }}
-            className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition whitespace-nowrap border border-indigo-100"
-            title="Campaign Serviceability"
-          >
-            <MapPin size={16} />
-            Serviceability
           </button>
           <button
             onClick={() => {
@@ -929,7 +904,7 @@ export function AdminMenuBuilder() {
                             src={item.mealImage || undefined} 
                             alt={item.name} 
                             referrerPolicy="no-referrer"
-                            className={`w-24 h-24 object-cover rounded-xl shadow-sm border border-gray-100 ${item.isActive === false ? 'grayscale' : ''}`}
+                            className={`w-24 h-24 object-contain bg-gray-50 rounded-xl shadow-sm border border-gray-100 ${item.isActive === false ? 'grayscale' : ''}`}
                           />
                         </div>
                         <div className="flex-1 text-center md:text-left w-full">
@@ -1223,8 +1198,8 @@ export function AdminMenuBuilder() {
       {/* Share Modal */}
       {showShareModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <div className="bg-white rounded-2xl w-full max-w-sm sm:max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
               <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
                 <Share2 size={20} className="text-red-600" />
                 Share Campaign
@@ -1237,75 +1212,191 @@ export function AdminMenuBuilder() {
                 <X size={20} />
               </button>
             </div>
-            <div className="p-6">
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Privacy</label>
-                <div className="relative">
-                  <select
-                    value={currentCampaignPrivacy}
-                    onChange={async (e) => {
-                      const newPrivacy = e.target.value as CampaignPrivacy;
-                      setCurrentCampaignPrivacy(newPrivacy);
-                      const updatedCampaigns = await updateCampaignPrivacy(campaignId, newPrivacy);
-                      setAllCampaigns(updatedCampaigns);
-                    }}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm font-medium text-gray-700 bg-white focus:ring-red-500 focus:border-red-500 shadow-sm appearance-none"
-                  >
-                    <option value="PUBLIC">Public - Anyone with link can view</option>
-                    <option value="PRIVATE">Private - Only accessible by exact link</option>
-                    <option value="CUSTOMERS">Customers Only - Requires sign-in</option>
-                  </select>
-                </div>
-              </div>
+            <div className="p-6 overflow-y-auto">
+              {(() => {
+                const c = allCampaigns.find((camp) => camp.id === campaignId);
+                const b = brands.find(brand => brand.id === c?.brandId);
+                const currentSlug = c?.slug || campaignId;
+                const url = `${window.location.origin}/c/${currentSlug}`;
+                
+                return (
+                  <>
+                    <div className="mb-6 flex flex-col items-center bg-gray-100/50 p-4 rounded-xl border border-gray-200">
+                      <h4 className="font-bold text-gray-800 mb-3 text-sm">Campaign Share Preview</h4>
+                      <div className="bg-white border border-gray-200 p-4 font-sans text-center rounded-lg shadow-sm w-full max-w-[280px]">
+                        <h1 className="text-xl font-black text-gray-900 mb-1 leading-tight line-clamp-2">{c?.name || 'Special Offer'}</h1>
+                        <h2 className="text-sm font-bold text-red-600 mb-3">{b?.name || 'QwikMeal Partner'}</h2>
+                        {waIncludeBanner && activeItems.length > 0 && (
+                          <div className="bg-gray-50 border border-gray-100 rounded-lg p-2 mb-3">
+                            <img src={activeItems[0].mealImage || imgFallback} alt="Banner" className="w-full h-auto max-h-[100px] object-contain rounded-md" />
+                          </div>
+                        )}
+                        {waIncludeQR && (
+                          <div className="flex flex-col items-center">
+                            <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-100">
+                              <QRCodeSVG value={url} size={100} level="H" />
+                            </div>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-gray-500 mt-2">Scan to Order</p>
+                          </div>
+                        )}
+                        <div className="text-[10px] text-gray-400 font-medium pt-2 mt-3 border-t border-gray-100 truncate">
+                          {window.location.origin}/c/{c?.slug || campaignId}
+                        </div>
+                      </div>
+                      
+                      <div className="flex w-full gap-3 mt-4">
+                        <button
+                          onClick={async () => {
+                              const flyerElement = document.getElementById('whatsapp-flyer-render');
+                              if (flyerElement) {
+                                const origPos = flyerElement.style.position;
+                                const origTop = flyerElement.style.top;
+                                const origLeft = flyerElement.style.left;
+                                const origZ = flyerElement.style.zIndex;
+                                
+                                flyerElement.style.position = 'fixed';
+                                flyerElement.style.top = '0px';
+                                flyerElement.style.left = '0px';
+                                flyerElement.style.zIndex = '-9999';
 
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Link</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden text-ellipsis whitespace-nowrap text-sm text-gray-600">
-                    {selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`}
-                  </div>
-                  <button
-                    onClick={() => {
-                      const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
-                      navigator.clipboard.writeText(url);
-                      alert('Link copied to clipboard!');
-                    }}
-                    title="Copy Link"
-                    className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 transition flex items-center gap-2"
-                  >
-                    <Copy size={18} />
-                  </button>
-                </div>
-              </div>
+                                await new Promise(r => setTimeout(r, 150));
+                                const dataUrl = await toJpeg(flyerElement, { pixelRatio: 2, quality: 0.85, skipAutoScale: true, backgroundColor: '#ffffff' });
+                                
+                                flyerElement.style.position = origPos;
+                                flyerElement.style.top = origTop;
+                                flyerElement.style.left = origLeft;
+                                flyerElement.style.zIndex = origZ;
 
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Personalize (Optional)</label>
-                <input 
-                   type="text" 
-                   placeholder="Customer Name (e.g. John)" 
-                   value={shareCustomerName} 
-                   onChange={(e) => setShareCustomerName(e.target.value)} 
-                   className="w-full border border-gray-300 rounded-lg px-4 py-2 mt-1 text-sm focus:ring-red-500 focus:border-red-500 shadow-sm" 
-                 />
-              </div>
+                                const fetchRes = await fetch(dataUrl);
+                                const blob = await fetchRes.blob();
+                                if (!blob || blob.size < 100) {
+                                  alert('Failed to generate flyer image (image is blank)');
+                                  return;
+                                }
+                                const link = document.createElement('a');
+                                link.download = `Flyer_${c?.slug || campaignId}.jpg`;
+                                link.href = dataUrl;
+                                link.click();
+                              }
+                          }}
+                          className="flex-1 bg-white border border-gray-300 text-gray-700 py-2 rounded-lg text-sm font-semibold flex justify-center items-center gap-2 hover:bg-gray-50 transition shadow-sm"
+                        >
+                          <Download size={16} className="text-gray-500" /> Save Flyer
+                        </button>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(url);
+                            alert('Link copied to clipboard!');
+                          }}
+                          className="flex-1 bg-white border border-gray-300 text-gray-700 py-2 rounded-lg text-sm font-semibold flex justify-center items-center gap-2 hover:bg-gray-50 transition shadow-sm"
+                        >
+                          <Copy size={16} className="text-gray-500" /> Copy Link
+                        </button>
+                      </div>
+                    </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <button
-                  onClick={() => {
-                    const c = allCampaigns.find((camp) => camp.id === campaignId);
-                    const b = brands.find(brand => brand.id === c?.brandId);
-                    const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
-                    const customGreeting = shareCustomerName ? `Hi ${shareCustomerName},\nWe've reserved a special offer for you from ${b?.name || 'us'}.\n\n` : '';
-                    
-                    let expiryText = '';
-                    if (c?.endDate) {
-                      expiryText = `\n⏳ *Offer Valid Until:*\n${new Date(c.endDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}\n`;
-                    }
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Privacy</label>
+                      <div className="relative">
+                        <select
+                          value={currentCampaignPrivacy}
+                          onChange={async (e) => {
+                            const newPrivacy = e.target.value as CampaignPrivacy;
+                            setCurrentCampaignPrivacy(newPrivacy);
+                            const updatedCampaigns = await updateCampaignPrivacy(campaignId, newPrivacy);
+                            setAllCampaigns(updatedCampaigns);
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm font-medium text-gray-700 bg-white focus:ring-red-500 focus:border-red-500 shadow-sm appearance-none"
+                        >
+                          <option value="PUBLIC">Public - Anyone with link can view</option>
+                          <option value="PRIVATE">Private - Only accessible by exact link</option>
+                          <option value="CUSTOMERS">Customers Only - Requires sign-in</option>
+                        </select>
+                      </div>
+                    </div>
 
-                    const ctaText = c?.ctaConfig?.text || 'Order Now';
-                    const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n${url}` : `🔗 Tap below to order:\n${url}`;
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Short URL Slug</label>
+                      <div className="flex gap-2 items-center">
+                        <span className="text-gray-500 text-sm hidden sm:inline">{window.location.origin}/c/</span>
+                        <span className="text-gray-500 text-sm sm:hidden">/c/</span>
+                        <input
+                          type="text"
+                          value={c?.slug || ''}
+                          placeholder="e.g. pizza-party"
+                          onChange={async (e) => {
+                             const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                             const updated = await updateCampaignSlug(campaignId, val);
+                             setAllCampaigns(updated);
+                          }}
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-red-500 focus:border-red-500"
+                        />
+                      </div>
+                    </div>
 
-                    const text = encodeURIComponent(
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Link</label>
+                      <div className="flex gap-2">
+                        <div className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden text-ellipsis whitespace-nowrap text-sm text-gray-600">
+                          {url}
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(url);
+                            alert('Link copied to clipboard!');
+                          }}
+                          title="Copy Link"
+                          className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 transition flex items-center gap-2"
+                        >
+                          <Copy size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Personalize (Optional)</label>
+                      <input 
+                         type="text" 
+                         placeholder="Customer Name (e.g. John)" 
+                         value={shareCustomerName} 
+                         onChange={(e) => setShareCustomerName(e.target.value)} 
+                         className="w-full border border-gray-300 rounded-lg px-4 py-2 mt-1 text-sm focus:ring-red-500 focus:border-red-500 shadow-sm" 
+                       />
+                    </div>
+
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">WhatsApp Share Settings</label>
+                      <div className="space-y-2 bg-green-50/50 p-4 rounded-lg border border-green-100">
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input type="checkbox" checked={waIncludeBanner} onChange={e => setWaIncludeBanner(e.target.checked)} className="rounded text-green-600 focus:ring-green-500" />
+                          Include Campaign Banner Image
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input type="checkbox" checked={waIncludeQR} onChange={e => setWaIncludeQR(e.target.checked)} className="rounded text-green-600 focus:ring-green-500" />
+                          Include QR Code
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input type="checkbox" checked={waUseShortUrl} onChange={e => setWaUseShortUrl(e.target.checked)} className="rounded text-green-600 focus:ring-green-500" />
+                          Use Short URL
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <button
+                        onClick={async () => {
+                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${campaignId}`;
+                          const customGreeting = shareCustomerName ? `Hi ${shareCustomerName},\nWe've reserved a special offer for you from ${b?.name || 'us'}.\n\n` : '';
+                          
+                          let expiryText = '';
+                          if (c?.endDate) {
+                            expiryText = `\n⏳ *Offer Valid Until:*\n${new Date(c.endDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}\n`;
+                          }
+
+                          const ctaText = c?.ctaConfig?.text || 'Order Now';
+                          const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n${linkUrl}` : `🔗 Tap below to order:\n${linkUrl}`;
+
+                          const text = encodeURIComponent(
 `${customGreeting}━━━━━━━━━━━━━━━
 
 🍔 *QwikMeal Exclusive*
@@ -1323,49 +1414,150 @@ ${ctaSection}
 Powered by QwikMeal
 
 ━━━━━━━━━━━━━━━`
-                    );
-                    window.open(`https://wa.me/?text=${text}`, '_blank');
-                  }}
-                  className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-colors group"
-                >
-                  <MessageSquare className="text-gray-400 group-hover:text-green-500 transition-colors" size={24} />
-                  <span className="text-xs font-semibold text-gray-600 group-hover:text-green-600 transition-colors">WhatsApp</span>
-                </button>
-                <button
-                  onClick={() => {
-                    const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
-                    const subject = encodeURIComponent('New Campaign');
-                    const body = encodeURIComponent(`Check out our new campaign!\n\nLink: ${url}`);
-                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                  }}
-                  className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-colors group"
-                >
-                  <Mail className="text-gray-400 group-hover:text-blue-500 transition-colors" size={24} />
-                  <span className="text-xs font-semibold text-gray-600 group-hover:text-blue-600 transition-colors">Email</span>
-                </button>
-                <button
-                  onClick={async () => {
-                    const url = selectedItems.size > 0 ? `${window.location.origin}/c/${campaignId}?items=${Array.from(selectedItems).join(',')}` : `${window.location.origin}/c/${campaignId}`;
-                    if (navigator.share) {
-                      try {
-                        await navigator.share({
-                          title: 'Campaign Link',
-                          text: 'Check out our new campaign!',
-                          url: url,
-                        });
-                      } catch (err) {
-                        console.error('Share failed:', err);
-                      }
-                    } else {
-                      window.open(`sms:?body=${encodeURIComponent(url)}`, '_self');
-                    }
-                  }}
-                  className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-colors group"
-                >
-                  <Share2 className="text-gray-400 group-hover:text-purple-500 transition-colors" size={24} />
-                  <span className="text-xs font-semibold text-gray-600 group-hover:text-purple-600 transition-colors">{navigator.share ? 'More' : 'SMS'}</span>
-                </button>
-              </div>
+                          );
+
+                          const w = window.open('about:blank', '_blank');
+
+                          if (waIncludeBanner || waIncludeQR) {
+                            try {
+                              const flyerElement = document.getElementById('whatsapp-flyer-render');
+                              if (flyerElement) {
+                                const origPos = flyerElement.style.position;
+                                const origTop = flyerElement.style.top;
+                                const origLeft = flyerElement.style.left;
+                                const origZ = flyerElement.style.zIndex;
+                                
+                                flyerElement.style.position = 'fixed';
+                                flyerElement.style.top = '0px';
+                                flyerElement.style.left = '0px';
+                                flyerElement.style.zIndex = '-9999';
+
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                                const dataUrl = await toJpeg(flyerElement, { pixelRatio: 2, quality: 0.85, skipAutoScale: true, backgroundColor: '#ffffff' });
+                                
+                                flyerElement.style.position = origPos;
+                                flyerElement.style.top = origTop;
+                                flyerElement.style.left = origLeft;
+                                flyerElement.style.zIndex = origZ;
+
+                                const fetchRes = await fetch(dataUrl);
+                                const blob = await fetchRes.blob();
+                                
+                                if (!blob || blob.size < 100) {
+                                  if (w) w.location.href = `https://wa.me/?text=${text}`;
+                                  alert('Could not render flyer. Only text will be shared.');
+                                  return;
+                                }
+                                
+                                const file = new File([blob], `Campaign_${c?.slug || campaignId}.jpg`, { type: 'image/jpeg' });
+                                const unencodedText = decodeURIComponent(text);
+                                const baseShareText = unencodedText;
+
+                                // Fallback: download file and open WA
+                                const link = document.createElement('a');
+                                link.download = file.name;
+                                const objUrl = URL.createObjectURL(blob);
+                                link.href = objUrl;
+                                link.click();
+                                
+                                const fallbackText = encodeURIComponent(baseShareText + "\n\n*(Image downloaded! Attach it to this message!)*");
+                                
+                                if (w) {
+                                  w.location.href = `https://wa.me/?text=${fallbackText}`;
+                                } else {
+                                  window.open(`https://wa.me/?text=${fallbackText}`, '_blank');
+                                }
+                                
+                                setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+                                return;
+                              }
+                            } catch (err) {
+                              console.error('Failed to generate flyer', err);
+                              if (w) w.location.href = `https://wa.me/?text=${text}`;
+                              alert('Failed to generate flyer. Only text will be shared.');
+                              return;
+                            }
+                          }
+                          
+                          if (w) {
+                            w.location.href = `https://wa.me/?text=${text}`;
+                          } else {
+                            window.open(`https://wa.me/?text=${text}`, '_blank');
+                          }
+                        }}
+                        className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-colors group"
+                      >
+                        <MessageSquare className="text-gray-400 group-hover:text-green-500 transition-colors" size={24} />
+                        <span className="text-xs font-semibold text-gray-600 group-hover:text-green-600 transition-colors">WhatsApp</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${campaignId}`;
+                          const subject = encodeURIComponent('New Campaign');
+                          const body = encodeURIComponent(`Check out our new campaign!\n\nLink: ${linkUrl}`);
+                          window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                        }}
+                        className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-colors group"
+                      >
+                        <Mail className="text-gray-400 group-hover:text-blue-500 transition-colors" size={24} />
+                        <span className="text-xs font-semibold text-gray-600 group-hover:text-blue-600 transition-colors">Email</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${campaignId}`;
+                          if (navigator.share) {
+                            try {
+                              await navigator.share({
+                                title: c?.name || 'Campaign Link',
+                                text: `Check out our new campaign from ${b?.name || 'QwikMeal'}!`,
+                                url: linkUrl,
+                              });
+                            } catch (err) {
+                              console.error('Share failed:', err);
+                            }
+                          } else {
+                            window.open(`sms:?body=${encodeURIComponent(linkUrl)}`, '_self');
+                          }
+                        }}
+                        className="flex flex-col items-center gap-2 p-3 border border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-colors group"
+                      >
+                        <Share2 className="text-gray-400 group-hover:text-purple-500 transition-colors" size={24} />
+                        <span className="text-xs font-semibold text-gray-600 group-hover:text-purple-600 transition-colors">{navigator.share ? 'More' : 'SMS'}</span>
+                      </button>
+                    </div>
+
+                    {/* Hidden Flyer for Rendering */}
+                    <div id="whatsapp-flyer-render" className="fixed top-0 left-0 bg-white w-[600px] border border-gray-200 p-8 z-[-100] font-sans" style={{ pointerEvents: 'none' }}>
+                      <div className="text-center mb-6">
+                        <h1 className="text-3xl font-black text-gray-900 mb-2">{c?.name || 'Special Offer'}</h1>
+                        <h2 className="text-xl font-bold text-red-600">{b?.name || 'QwikMeal Partner'}</h2>
+                      </div>
+                      
+                      {waIncludeBanner && activeItems.length > 0 && (
+                        <div className="mb-8 rounded-xl overflow-hidden shadow-lg border border-gray-100 bg-gray-50 flex items-center justify-center p-4">
+                           <img 
+                             src={activeItems[0].mealImage || imgFallback} 
+                             alt="Banner" 
+                             className="max-w-full h-auto max-h-[400px] object-contain rounded-lg"
+                             referrerPolicy="no-referrer"
+                             crossOrigin="anonymous"
+                           />
+                        </div>
+                      )}
+                      
+                      {waIncludeQR && (
+                        <div className="flex flex-col items-center justify-center bg-gray-50 border border-gray-200 rounded-xl p-8 mb-6">
+                          <QRCodeCanvas value={url} size={200} level="H" />
+                          <p className="mt-4 font-bold text-gray-600 tracking-wider">SCAN TO ORDER NOW</p>
+                        </div>
+                      )}
+                      <div className="text-center text-gray-400 font-medium text-sm pt-4 border-t border-gray-200 mb-2">
+                        Powered by QwikMeal
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1607,126 +1799,6 @@ Powered by QwikMeal
                   className="w-full bg-blue-600 text-white font-bold py-2.5 rounded-lg hover:bg-blue-700 transition shadow-sm"
                 >
                   Save Benefits Config
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {showServiceabilityModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
-                <MapPin size={20} className="text-indigo-600" />
-                Campaign Serviceability
-              </h3>
-              <button 
-                onClick={() => setShowServiceabilityModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div className="flex items-center gap-3 bg-indigo-50 p-4 rounded-xl">
-                <div className="bg-white p-2 rounded-lg shadow-sm">
-                  <MapPin size={24} className="text-indigo-600" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-indigo-900 text-sm">Delivery Validation</h4>
-                  <p className="text-xs text-indigo-700 mt-0.5">Control where this campaign is available for delivery.</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={serviceabilityForm.enabled}
-                    onChange={(e) => setServiceabilityForm({ ...serviceabilityForm, enabled: e.target.checked })}
-                    className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="font-semibold text-gray-800">Enable Serviceability Validation</span>
-                </label>
-              </div>
-
-               {serviceabilityForm.enabled && (
-                 <div className="space-y-4">
-                   <label className="block text-sm font-semibold text-gray-700">Coverage Type</label>
-                   <select 
-                     value={serviceabilityForm.coverageType}
-                     onChange={(e) => setServiceabilityForm({ ...serviceabilityForm, coverageType: e.target.value as CoverageType })}
-                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
-                   >
-                     <option value="ALL_INDIA">All India (Nationwide)</option>
-                     <option value="PINCODES">Selected Pincodes</option>
-                     <option value="CITIES">Selected Cities</option>
-                     <option value="RADIUS">Radius Based</option>
-                     <option value="STORES">Store Coverage Only</option>
-                   </select>
-
-                   {serviceabilityForm.coverageType === 'PINCODES' && (
-                     <div>
-                       <label className="block text-sm font-medium text-gray-700 mb-1">Enter Pincodes (comma separated)</label>
-                       <textarea 
-                         placeholder="e.g. 110001, 110002"
-                         value={serviceabilityForm.pincodes?.join(', ') || ''}
-                         onChange={(e) => {
-                           const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                           setServiceabilityForm({ ...serviceabilityForm, pincodes: arr });
-                         }}
-                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-24"
-                       />
-                       <p className="text-xs text-gray-500 mt-1">Total pincodes: {serviceabilityForm.pincodes?.length || 0}</p>
-                     </div>
-                   )}
-
-                   {serviceabilityForm.coverageType === 'CITIES' && (
-                     <div>
-                       <label className="block text-sm font-medium text-gray-700 mb-1">Enter Cities (comma separated)</label>
-                       <textarea 
-                         placeholder="e.g. New Delhi, Mumbai, Bangalore"
-                         value={serviceabilityForm.cities?.join(', ') || ''}
-                         onChange={(e) => {
-                           const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                           setServiceabilityForm({ ...serviceabilityForm, cities: arr });
-                         }}
-                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-24"
-                       />
-                     </div>
-                   )}
-
-                   {serviceabilityForm.coverageType === 'RADIUS' && (
-                     <div className="grid grid-cols-3 gap-3">
-                       <div>
-                         <label className="block text-xs font-medium text-gray-700 mb-1">Lat</label>
-                         <input type="number" step="0.0001" value={serviceabilityForm.radiusInfo?.lat || 0} onChange={e => setServiceabilityForm({...serviceabilityForm, radiusInfo: {...serviceabilityForm.radiusInfo!, lat: Number(e.target.value)}})} className="w-full border rounded-lg px-2 py-1 text-sm" />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-medium text-gray-700 mb-1">Lng</label>
-                         <input type="number" step="0.0001" value={serviceabilityForm.radiusInfo?.lng || 0} onChange={e => setServiceabilityForm({...serviceabilityForm, radiusInfo: {...serviceabilityForm.radiusInfo!, lng: Number(e.target.value)}})} className="w-full border rounded-lg px-2 py-1 text-sm" />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-medium text-gray-700 mb-1">Radius (KM)</label>
-                         <input type="number" min="0" value={serviceabilityForm.radiusInfo?.radiusKm || 5} onChange={e => setServiceabilityForm({...serviceabilityForm, radiusInfo: {...serviceabilityForm.radiusInfo!, radiusKm: Number(e.target.value)}})} className="w-full border rounded-lg px-2 py-1 text-sm" />
-                       </div>
-                     </div>
-                   )}
-                 </div>
-               )}
-
-              <div className="pt-2 border-t border-gray-100">
-                <button
-                  onClick={async () => {
-                    const updatedCampaigns = await updateCampaignServiceability(campaignId, serviceabilityForm);
-                    setAllCampaigns(updatedCampaigns);
-                    setShowServiceabilityModal(false);
-                  }}
-                  className="w-full bg-indigo-600 text-white font-bold py-2.5 rounded-lg hover:bg-indigo-700 transition shadow-sm"
-                >
-                  Save Serviceability Config
                 </button>
               </div>
             </div>

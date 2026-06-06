@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Plus, Minus, CreditCard, ShoppingBag, ArrowLeft, User as UserIcon, Users, Trash2, Calendar, Clock, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ShoppingCart, Plus, Minus, CreditCard, ShoppingBag, ArrowLeft, User as UserIcon, Users, Trash2, Calendar, Clock, MapPin, Download } from 'lucide-react';
 import { mockMenuItems } from '../data.mock';
 import { getBrands } from '../brands';
 import { getCampaigns } from '../campaigns';
 import { CartItem, OrderVariant, Campaign, Brand, MenuItem } from '../types';
 import { authService } from '../auth';
 import { dbService } from '../db';
+import { jsPDF } from 'jspdf';
+import { toPng } from 'html-to-image';
+import { QRCodeSVG } from 'qrcode.react';
 
 export function StoreMenu() {
   const user = authService.getUser();
@@ -38,6 +41,8 @@ export function StoreMenu() {
   
   const [showCheckout, setShowCheckout] = useState(false);
   const [orderVariant, setOrderVariant] = useState<OrderVariant>('SELF');
+  const [orderType, setOrderType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
+  const [placedOrderId, setPlacedOrderId] = useState<string>('');
   
   // Checkout form state
   const [recipientName, setRecipientName] = useState(user?.name || '');
@@ -62,21 +67,19 @@ export function StoreMenu() {
     return new Date() > new Date(currentCampaign.endDate);
   }, [currentCampaign]);
   
+  const activeBrand = brands.find(b => b.id === activeBrandId);
+
   const validateServiceability = () => {
-    if (!currentCampaign?.serviceability?.enabled) return true;
-    const { coverageType, pincodes, cities } = currentCampaign.serviceability;
+    if (!activeBrand?.serviceability?.enabled) return true;
+    const { coverageType, pincodes, cities } = activeBrand.serviceability;
     
     if (coverageType === 'ALL_INDIA') return true;
     
     if (coverageType === 'PINCODES' && pincodes && pincodes.length > 0) {
-       // Check if deliveryPinCode is in pincodes
-       // if customer hasn't entered pincode yet, we might allow viewing but not ordering,
-       // or we require pincode before. For now, if no pincode is there, we assume it's serviceable until checkout.
        if (deliveryPinCode) {
          return pincodes.includes(deliveryPinCode);
        }
     }
-    // Handle other types as needed
     return true;
   };
   
@@ -168,56 +171,67 @@ export function StoreMenu() {
   };
 
   const cartTotal = cart.reduce((total, item) => total + (item.menuItem.offerPrice * item.quantity), 0);
-  const cartDelivery = cart.length > 0 ? Math.max(...cart.map(c => c.menuItem.deliveryCharges)) : 0;
+  const cartDelivery = (orderType === 'DELIVERY' && cart.length > 0) ? Math.max(...cart.map(c => c.menuItem.deliveryCharges)) : 0;
   const finalTotal = cartTotal + cartDelivery;
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setCheckoutError('');
 
-    if (orderVariant === 'OTHER') {
-      if (!recipientName || !recipientContact || !deliveryHouseNo || !deliveryStreet || !deliveryPinCode || !deliveryContact || !deliveryDate || !deliveryTime) {
-        setCheckoutError('Please fill all mandatory fields including delivery schedule.');
-        return;
+    if (orderType === 'DELIVERY') {
+      if (orderVariant === 'OTHER') {
+        if (!recipientName || !recipientContact || !deliveryHouseNo || !deliveryStreet || !deliveryPinCode || !deliveryContact || !deliveryDate || !deliveryTime) {
+          setCheckoutError('Please fill all mandatory fields including delivery schedule.');
+          return;
+        }
+        if (!/^\d{10}$/.test(recipientContact) || !/^\d{10}$/.test(deliveryContact)) {
+          setCheckoutError('Contact numbers must be 10 digits.');
+          return;
+        }
+      } else {
+        if (!deliveryHouseNo || !deliveryStreet || !deliveryContact || !deliveryPinCode || !deliveryDate || !deliveryTime) {
+           setCheckoutError('Delivery address, contact and scheduling are required.');
+           return;
+        }
       }
-      if (!/^\d{10}$/.test(recipientContact) || !/^\d{10}$/.test(deliveryContact)) {
-        setCheckoutError('Contact numbers must be 10 digits.');
+
+      if (!isServiceable) {
+        setCheckoutError('Sorry, this brand is currently unavailable at your selected delivery location.');
+        if (activeCampaignId) {
+          dbService.addCampaignLog({
+            id: `LOG-${Date.now()}`,
+            campaignId: activeCampaignId,
+            timestamp: new Date().toISOString(),
+            action: 'ORDER_BLOCKED_NON_SERVICEABLE',
+            performedBy: user?.name || 'Guest',
+            details: `Order blocked. Reasons: Pincode ${deliveryPinCode} is not serviceable.`,
+            pincode: deliveryPinCode
+          });
+        }
         return;
       }
     } else {
-      if (!deliveryHouseNo || !deliveryStreet || !deliveryContact || !deliveryPinCode || !deliveryDate || !deliveryTime) {
-         setCheckoutError('Delivery address, contact and scheduling are required.');
-         return;
-      }
-    }
-
-    if (!isServiceable) {
-      setCheckoutError('Sorry, we currently do not deliver to this location. Please raise your request using Plan My Event link given below');
-      dbService.addCampaignLog({
-        id: `LOG-${Date.now()}`,
-        campaignId: activeCampaignId,
-        timestamp: new Date().toISOString(),
-        action: 'ORDER_BLOCKED_NON_SERVICEABLE',
-        performedBy: user?.name || 'Guest',
-        details: `Order blocked. Reasons: Pincode ${deliveryPinCode} is not serviceable.`,
-        pincode: deliveryPinCode
-      });
-      return;
+       if (!deliveryContact || !deliveryDate || !deliveryTime) {
+          setCheckoutError('Contact number and pickup schedule are required.');
+          return;
+       }
     }
 
     const today = new Date().toISOString().split('T')[0];
     if (deliveryDate < today) {
-      setCheckoutError('Delivery date cannot be in the past.');
+      setCheckoutError('Date cannot be in the past.');
       return;
     }
 
     const orderId = `ORD-${Date.now()}`;
+    const pickupCode = orderType === 'PICKUP' ? Math.random().toString(36).substring(2, 8).toUpperCase() : undefined;
+    if (pickupCode) setPlacedPickupCode(pickupCode);
     const orderItems = cart.map(c => {
       const { mealImage, ...strippedMenuItem } = c.menuItem;
       return { ...c, menuItem: strippedMenuItem };
     });
 
-    const order = {
+    const order: any = {
       id: orderId,
       userId: user?.id || 'guest',
       campaignId: activeCampaignId || undefined,
@@ -231,11 +245,14 @@ export function StoreMenu() {
       paymentStatus: 'PAID', // Simplified for simulation
       refundStatus: 'NONE',
       orderVariant,
+      orderType,
+      pickupCode,
+      pickupStatus: orderType === 'PICKUP' ? 'PENDING' : undefined,
       recipientName,
       recipientContact,
       recipientEmail,
-      deliveryAddress: `${deliveryHouseNo}, ${deliveryStreet}${deliveryCity ? ', ' + deliveryCity : ''}${deliveryState ? ', ' + deliveryState : ''}`,
-      deliveryPinCode,
+      deliveryAddress: orderType === 'DELIVERY' ? `${deliveryHouseNo}, ${deliveryStreet}${deliveryCity ? ', ' + deliveryCity : ''}${deliveryState ? ', ' + deliveryState : ''}` : '',
+      deliveryPinCode: orderType === 'DELIVERY' ? deliveryPinCode : '',
       deliveryContact,
       deliveryDate,
       deliveryTime,
@@ -274,7 +291,9 @@ export function StoreMenu() {
       console.warn('Firebase sync failed for transaction', e);
     }
 
+    setPlacedOrderId(orderId);
     setOrderSuccess(true);
+    setCart([]);
   };
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -282,6 +301,29 @@ export function StoreMenu() {
   const handleClearCart = () => {
     setCart([]);
     setShowClearConfirm(false);
+  };
+
+  const [placedPickupCode, setPlacedPickupCode] = useState<string>('');
+
+  const downloadSlip = async () => {
+    const element = document.getElementById('pickup-slip');
+    if (!element) return;
+    
+    // Temporarily ensure the element is visible with right styling for canvas
+    element.style.display = 'block';
+    
+    try {
+      const dataUrl = await toPng(element, { pixelRatio: 2 });
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
+      pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Pickup_Slip_${placedOrderId}.pdf`);
+    } catch (e) {
+      console.error('Error generating PDF', e);
+    } finally {
+      element.style.display = 'none';
+    }
   };
 
   return (
@@ -360,10 +402,10 @@ export function StoreMenu() {
                 </h2>
               </div>
               
-              {currentCampaign?.serviceability?.enabled && (currentCampaign.serviceability.coverageType === 'PINCODES' || currentCampaign.serviceability.coverageType === 'CITIES') && (
+              {activeBrand?.serviceability?.enabled && (activeBrand.serviceability.coverageType === 'PINCODES' || activeBrand.serviceability.coverageType === 'CITIES') && (
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4 justify-between">
                   <div className="text-indigo-900">
-                    <p className="font-semibold text-sm">Campaign Delivery Area</p>
+                    <p className="font-semibold text-sm">Brand Delivery Area</p>
                     <p className="text-xs mt-1">Please enter your delivery Pincode to check serviceability.</p>
                   </div>
                   <div className="flex gap-2 w-full sm:w-auto">
@@ -380,15 +422,21 @@ export function StoreMenu() {
 
               {!isServiceable && deliveryPinCode && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-                  <p className="text-red-700 font-semibold mb-2">Sorry, we currently do not deliver to this location ({deliveryPinCode}).</p>
-                  <p className="text-red-600 text-sm">Please raise your request using Plan My Event link given below or explore other available offers.</p>
+                  <p className="text-red-700 font-semibold mb-2">Sorry, this brand is currently unavailable at your selected delivery location ({deliveryPinCode}).</p>
+                  <p className="text-red-600 text-sm">Please raise your request using Plan My Event link given below or explore other available brands.</p>
+                  <button 
+                    onClick={() => { setActiveCampaignId(null); setActiveBrandId(brands[0]?.id || ''); }}
+                    className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 mr-2"
+                  >
+                    Explore Other Brands
+                  </button>
                   <button 
                     onClick={() => setActiveCampaignId(null)}
-                    className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                    className="mt-4 px-4 py-2 bg-white text-red-600 border border-red-600 rounded-lg text-sm font-medium hover:bg-red-50"
                   >
                     Explore Other Campaigns
                   </button>
-                  <div className="mt-2">
+                  <div className="mt-4">
                     <a href="/contact" className="text-sm font-semibold text-red-700 underline hover:text-red-800">
                       Plan My Event
                     </a>
@@ -433,7 +481,7 @@ export function StoreMenu() {
                 </div>
               )}
 
-              {currentCampaign?.serviceability?.enabled && (currentCampaign.serviceability.coverageType === 'PINCODES' || currentCampaign.serviceability.coverageType === 'CITIES') && (!deliveryPinCode || deliveryPinCode.length < 6) ? (
+              {activeBrand?.serviceability?.enabled && (activeBrand.serviceability.coverageType === 'PINCODES' || activeBrand.serviceability.coverageType === 'CITIES') && (!deliveryPinCode || deliveryPinCode.length < 6) ? (
                 <div className="bg-white border-2 border-indigo-100 border-dashed rounded-3xl p-10 text-center flex flex-col items-center justify-center">
                    <div className="bg-indigo-50 w-20 h-20 rounded-full flex items-center justify-center mb-4">
                      <MapPin size={32} className="text-indigo-600" />
@@ -458,8 +506,9 @@ export function StoreMenu() {
                       <img 
                         src={item.mealImage || undefined} 
                         alt={item.name} 
+                        loading="lazy"
                         referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                       />
                       {item.proposedSaving > 0 && (
                         <div className="absolute top-3 left-3 bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
@@ -508,7 +557,7 @@ export function StoreMenu() {
                           </span>
                           <button 
                             onClick={() => {
-                              if (!isServiceable || (!deliveryPinCode && currentCampaign?.serviceability?.enabled && currentCampaign.serviceability.coverageType === 'PINCODES')) {
+                              if (!isServiceable || (!deliveryPinCode && activeBrand?.serviceability?.enabled && activeBrand.serviceability.coverageType === 'PINCODES')) {
                                 alert('Please enter a serviceable delivery pincode before adding items.');
                                 return;
                               }
@@ -538,7 +587,7 @@ export function StoreMenu() {
 
         {/* Cart/Checkout Sidebar */}
         <div className="w-full lg:w-[400px] shrink-0">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm lg:sticky lg:top-24 overflow-hidden flex flex-col h-full lg:max-h-[calc(100vh-8rem)]">
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm lg:sticky lg:top-24 overflow-hidden flex flex-col h-full lg:max-h-[calc(100dvh-8rem)]">
             <div className="bg-gray-900 p-4 text-white flex items-center justify-between relative">
               <h2 className="font-bold text-lg flex items-center gap-2">
                 <ShoppingCart size={20} />
@@ -627,8 +676,18 @@ export function StoreMenu() {
                       Order Placed Successfully!
                     </div>
                     <p className="text-sm text-gray-500 leading-relaxed max-w-[250px] mx-auto">
-                       Your order for ₹{finalTotal} is confirmed. View Dashboard to track delivery.
+                       Your order for ₹{finalTotal} is confirmed. View Dashboard to track {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}.
                     </p>
+                    {orderType === 'PICKUP' && (
+                      <div className="mt-6 flex justify-center">
+                        <button 
+                          onClick={downloadSlip}
+                          className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition"
+                        >
+                          <Download size={18} /> Download Pickup Confirmation Slip
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <form onSubmit={handlePlaceOrder} className="space-y-6">
@@ -641,18 +700,38 @@ export function StoreMenu() {
                     <div className="flex bg-gray-100 p-1 rounded-lg">
                       <button 
                         type="button"
-                        onClick={() => setOrderVariant('SELF')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-colors ${orderVariant === 'SELF' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                        onClick={() => setOrderType('DELIVERY')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-colors ${orderType === 'DELIVERY' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                       >
-                        <UserIcon size={16} /> For Self
+                        <MapPin size={16} /> Delivery
                       </button>
                       <button 
                         type="button"
-                        onClick={() => setOrderVariant('OTHER')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-colors ${orderVariant === 'OTHER' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                        onClick={() => setOrderType('PICKUP')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-colors ${orderType === 'PICKUP' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                       >
-                        <Users size={16} /> For Someone Else
+                        <ShoppingBag size={16} /> Pickup
                       </button>
+                    </div>
+
+                    <div className="space-y-4 pt-2">
+                       <h4 className="font-bold text-sm border-b pb-2">Options</h4>
+                       <div className="flex bg-gray-100 p-1 rounded-lg mt-2">
+                         <button 
+                           type="button"
+                           onClick={() => setOrderVariant('SELF')}
+                           className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-colors ${orderVariant === 'SELF' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                         >
+                           <UserIcon size={16} /> For Self
+                         </button>
+                         <button 
+                           type="button"
+                           onClick={() => setOrderVariant('OTHER')}
+                           className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-colors ${orderVariant === 'OTHER' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                         >
+                           <Users size={16} /> For Someone Else
+                         </button>
+                       </div>
                     </div>
 
                     {orderVariant === 'OTHER' && (
@@ -674,45 +753,58 @@ export function StoreMenu() {
                     )}
 
                     <div className="space-y-4 pt-2">
-                      <h4 className="font-bold text-sm border-b pb-2">Delivery Details</h4>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">House/Flat/Block No. *</label>
-                        <input type="text" value={deliveryHouseNo} onChange={e => setDeliveryHouseNo(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="e.g. Flat 4B, XYZ Apartments" />
-                      </div>
+                      <h4 className="font-bold text-sm border-b pb-2">{orderType === 'DELIVERY' ? 'Delivery' : 'Pickup'} Details</h4>
                       
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Street/Area/Landmark *</label>
-                        <input type="text" value={deliveryStreet} onChange={e => setDeliveryStreet(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="e.g. Near Main Square, MG Road" />
-                      </div>
+                      {orderType === 'DELIVERY' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">House/Flat/Block No. *</label>
+                            <input type="text" value={deliveryHouseNo} onChange={e => setDeliveryHouseNo(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="e.g. Flat 4B, XYZ Apartments" />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Street/Area/Landmark *</label>
+                            <input type="text" value={deliveryStreet} onChange={e => setDeliveryStreet(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="e.g. Near Main Square, MG Road" />
+                          </div>
 
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Pin Code</label>
-                          <input type="text" value={deliveryPinCode} onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} required className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50" readOnly={isServiceable && deliveryPinCode.length === 6} />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
-                          <input type="text" value={deliveryCity} readOnly className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" placeholder="Auto-filled" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
-                          <input type="text" value={deliveryState} readOnly className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" placeholder="Auto-filled" />
-                        </div>
-                      </div>
-                      
-                      {isServiceable && deliveryPinCode.length === 6 && deliveryCity && (
-                        <div className="bg-green-50 text-green-700 p-2 rounded text-xs flex items-center gap-1 border border-green-100">
-                          <MapPin size={14}/> Delivery available in {deliveryCity}, {deliveryState} - {deliveryPinCode}
-                        </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">Pin Code</label>
+                              <input type="text" value={deliveryPinCode} onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} required className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50" readOnly={isServiceable && deliveryPinCode.length === 6} />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
+                              <input type="text" value={deliveryCity} readOnly className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" placeholder="Auto-filled" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
+                              <input type="text" value={deliveryState} readOnly className="w-full border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" placeholder="Auto-filled" />
+                            </div>
+                          </div>
+                          
+                          {isServiceable && deliveryPinCode.length === 6 && deliveryCity && (
+                            <div className="bg-green-50 text-green-700 p-2 rounded text-xs flex items-center gap-1 border border-green-100">
+                              <MapPin size={14}/> Delivery available in {deliveryCity}, {deliveryState} - {deliveryPinCode}
+                            </div>
+                          )}
+
+                          {!isServiceable && deliveryPinCode && (
+                            <p className="text-xs text-red-600 mt-1">Sorry, we currently do not deliver to this location. Please raise your request using Plan My Event link given below.</p>
+                          )}
+                        </>
                       )}
-
-                      {!isServiceable && deliveryPinCode && (
-                        <p className="text-xs text-red-600 mt-1">Sorry, we currently do not deliver to this location. Please raise your request using Plan My Event link given below.</p>
+                      
+                      {orderType === 'PICKUP' && (
+                        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-sm text-indigo-800">
+                           <p className="font-semibold mb-1">Pickup Store:</p>
+                           <p>{activeBrand?.name} - Main Branch</p>
+                           <p className="text-xs mt-1 opacity-80">You can collect your order by showing the QR code in the slip after success.</p>
+                        </div>
                       )}
                       
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1"><Calendar size={12}/> Delivery Date *</label>
+                          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1"><Calendar size={12}/> {orderType === 'DELIVERY' ? 'Delivery' : 'Pickup'} Date *</label>
                           <input 
                             type="date" 
                             min={currentCampaign?.fulfillmentSettings?.mode === 'RANGE' && currentCampaign.fulfillmentSettings.rangeStartDate ? currentCampaign.fulfillmentSettings.rangeStartDate : new Date().toISOString().split('T')[0]}
@@ -725,7 +817,7 @@ export function StoreMenu() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Delivery Time *</label>
+                          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> {orderType === 'DELIVERY' ? 'Delivery' : 'Pickup'} Time *</label>
                           {currentCampaign?.fulfillmentSettings?.mode === 'FIXED' ? (
                             <input type="text" readOnly value={deliveryTime} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-500" />
                           ) : (
@@ -736,7 +828,7 @@ export function StoreMenu() {
 
                       <div className="grid grid-cols-1 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Delivery Contact *</label>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Contact Number *</label>
                           <input type="tel" value={deliveryContact} onChange={e => setDeliveryContact(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="10 digits" />
                         </div>
                       </div>
@@ -808,6 +900,79 @@ export function StoreMenu() {
           </div>
         </div>
       </div>
+
+      {orderSuccess && orderType === 'PICKUP' && placedOrderId && (
+        <div className="hidden">
+          <div id="pickup-slip" className="bg-white p-8 w-[600px] font-sans border-2 border-indigo-100 rounded-xl">
+            <div className="flex justify-between items-start border-b-2 border-gray-100 pb-4 mb-4">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-1 flex items-center gap-2"><ShoppingBag className="text-indigo-600"/> Pickup Slip</h1>
+                <p className="text-sm text-gray-500">Order ID: {placedOrderId}</p>
+              </div>
+              {activeBrand?.logo ? (
+                <img src={activeBrand.logo} alt="Brand Logo" className="h-12 w-auto object-contain" />
+              ) : (
+                <div className="text-lg font-bold text-indigo-900">{activeBrand?.name || 'QwikMeal'}</div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-6 mb-6 pb-6 border-b-2 border-gray-100">
+              <div>
+                <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider mb-2">Customer Details</h3>
+                <p className="font-semibold text-gray-900 text-lg">{recipientName || user?.name || 'Guest'}</p>
+                <p className="text-gray-600">Ph: {recipientContact || deliveryContact}</p>
+                <p className="text-gray-500 text-sm mt-1">Date: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
+              </div>
+              <div className="bg-indigo-50 p-4 rounded-lg flex items-center gap-4">
+                <div className="bg-white p-2 rounded">
+                  <QRCodeSVG value={`qwikmeal://pickup/${placedOrderId}?code=${placedPickupCode}`} size={64} level="H" />
+                </div>
+                <div>
+                  <p className="text-xs text-indigo-700 font-bold uppercase tracking-wider">Pickup Code</p>
+                  <p className="text-3xl font-black text-indigo-900 tracking-widest">{placedPickupCode}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider mb-2">Order Items</h3>
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-gray-500 uppercase text-xs">
+                    <th className="py-2.5 font-medium">Item</th>
+                    <th className="py-2.5 font-medium text-center">Qty</th>
+                    <th className="py-2.5 font-medium text-right">Price</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {cart.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="py-2.5 font-medium text-gray-900">{item.menuItem.name}</td>
+                      <td className="py-2.5 text-center text-gray-700">{item.quantity}</td>
+                      <td className="py-2.5 text-right font-medium text-gray-900">₹{item.menuItem.offerPrice * item.quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-gray-200">
+                <span className="font-bold text-gray-700 tracking-wider">TOTAL PAID</span>
+                <span className="font-black text-xl text-gray-900">₹{finalTotal}</span>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-auto">
+              <div className="flex items-start gap-2">
+                <MapPin size={18} className="text-gray-400 mt-0.5 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">Pickup Store Location</h3>
+                  <p className="text-gray-600 text-sm">{activeBrand?.name || 'QwikMeal'} - Main Branch</p>
+                  <p className="text-gray-500 text-xs mt-1">Please show your pickup code or QR code at the counter.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

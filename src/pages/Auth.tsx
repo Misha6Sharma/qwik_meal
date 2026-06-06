@@ -156,7 +156,7 @@ export function Auth() {
 
   if (needsPasswordChange) {
     return (
-      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-4 bg-gray-50 py-12">
+      <div className="min-h-[calc(100dvh-64px)] flex items-center justify-center p-4 bg-gray-50 py-12">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
           <div className="p-8 text-center bg-gray-50 border-b border-gray-100">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Change Password Required</h2>
@@ -228,7 +228,7 @@ export function Auth() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-4 bg-gray-50 py-12">
+    <div className="min-h-[calc(100dvh-64px)] flex items-center justify-center p-4 bg-gray-50 py-12">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
         <div className="p-8 text-center bg-gray-50 border-b border-gray-100">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">

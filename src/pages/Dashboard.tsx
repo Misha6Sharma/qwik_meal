@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { mockMealPlans } from '../data.mock';
 import { getBrands } from '../brands';
 import { Brand } from '../types';
 import { authService } from '../auth';
@@ -10,9 +9,8 @@ export function Dashboard() {
   const navigate = useNavigate();
   const [brands, setBrands] = useState<Brand[]>([]);
   const user = authService.getUser();
-  const [activeOrders, setActiveOrders] = useState<any[]>([]);
+   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [hasHistory, setHasHistory] = useState(false);
-  const [activeSubscriptions, setActiveSubscriptions] = useState<any[]>([]);
 
   useEffect(() => {
     const loadDashboardInfo = async () => {
@@ -22,13 +20,8 @@ export function Dashboard() {
       const orders = await import('../db').then(m => m.dbService.getOrders(user?.id));
       const currActiveOrders = orders.filter((o: any) => !['CANCELLED', 'DELIVERED'].includes(o.status));
       
-      const subs = JSON.parse(localStorage.getItem('qwikmeal_subscriptions') || '[]');
-      const uSubs = subs.filter((s: any) => s.userId === user?.id);
-      const currActiveSubs = uSubs.filter((s: any) => s.status === 'ACTIVE');
-      
-      setHasHistory(orders.length > 0 || uSubs.length > 0);
+      setHasHistory(orders.length > 0);
       setActiveOrders(currActiveOrders);
-      setActiveSubscriptions(currActiveSubs);
     };
 
     loadDashboardInfo();
@@ -43,12 +36,12 @@ export function Dashboard() {
       {/* Welcome Banner */}
       <div className="bg-gray-900 rounded-2xl p-8 text-white relative overflow-hidden flex flex-col justify-between gap-6">
          <div className="absolute right-0 top-0 w-64 h-64 bg-red-600 rounded-full blur-3xl opacity-20 transform translate-x-1/2 -translate-y-1/2" />
-         <div className="relative z-10 box-border w-full flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="relative z-10 box-border w-full flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight break-words mb-4">
                 {welcomeMessage}
               </h1>
-              {activeSubscriptions.length === 0 && activeOrders.length === 0 && (
+              {activeOrders.length === 0 && (
                  <p className="text-gray-400 text-lg">Ready to order your first meal!</p>
               )}
             </div>
@@ -60,17 +53,8 @@ export function Dashboard() {
             )}
          </div>
          <div className="relative z-10 box-border w-full">
-            {(activeSubscriptions.length > 0 || activeOrders.length > 0) && (
+            {activeOrders.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {activeSubscriptions.length > 0 && (
-                   <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700/50">
-                      <h3 className="font-semibold text-white mb-1">Active Subscription Information</h3>
-                      <p className="text-gray-400 text-sm mb-3">Status: Active <br/>Plan: Daily Office Lunch <br/>Next Delivery: Tomorrow at 1:00 PM</p>
-                      <button onClick={() => navigate('/dashboard/subscriptions')} className="text-yellow-400 text-sm font-medium hover:text-yellow-300">
-                         View Details &rarr;
-                      </button>
-                   </div>
-                )}
                 {activeOrders.length > 0 && (
                    <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700/50">
                       <h3 className="font-semibold text-white mb-1">Active Order Information</h3>
@@ -119,47 +103,7 @@ export function Dashboard() {
          </div>
       </section>
 
-      {/* Subscription Plans */}
-      <section>
-         <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Subscription Plans</h2>
-            <p className="text-gray-500 text-sm">Recurring billing, delivered daily to your desk</p>
-         </div>
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {mockMealPlans.map(plan => (
-               <div key={plan.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:border-red-600 transition-colors group">
-                  <div className="relative h-48">
-                    <img src={plan.imageUrl || undefined} alt={plan.title} className="w-full h-full object-cover" />
-                    <div className="absolute top-3 left-3 flex gap-2">
-                      {plan.tags.map(tag => (
-                        <span key={tag} className="bg-white/90 backdrop-blur-sm text-gray-900 text-xs font-bold px-2 py-1 rounded">
-                           {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="p-5">
-                     <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-bold text-xl text-gray-900">{plan.title}</h3>
-                     </div>
-                     <p className="text-gray-500 text-sm mb-6 leading-relaxed line-clamp-2">
-                        {plan.description}
-                     </p>
-                     
-                     <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                        <div>
-                           <span className="text-2xl font-bold text-gray-900">₹{plan.pricePerMeal}</span>
-                           <span className="text-gray-500 text-xs font-medium ml-1">/ meal</span>
-                        </div>
-                        <button onClick={() => navigate('/dashboard/tracking')} className="bg-gray-900 text-white p-2 rounded-full hover:bg-red-600 transition-colors">
-                           <ArrowRight size={20} />
-                        </button>
-                     </div>
-                  </div>
-               </div>
-            ))}
-         </div>
-      </section>
+
     </div>
   );
 }

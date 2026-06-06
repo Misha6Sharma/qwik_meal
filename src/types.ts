@@ -48,13 +48,15 @@ export type Brand = {
   uploadTimestamp?: string;
   lastModifiedTimestamp?: string;
   modifiedBy?: string;
+  serviceability?: ServiceabilitySettings;
+  allowPickup?: boolean;
 };
 
 export type CampaignPrivacy = 'PUBLIC' | 'PRIVATE' | 'CUSTOMERS';
 
 export type CoverageType = 'ALL_INDIA' | 'PINCODES' | 'CITIES' | 'RADIUS' | 'STORES';
 
-export interface CampaignServiceability {
+export interface ServiceabilitySettings {
   enabled: boolean;
   coverageType: CoverageType;
   pincodes?: string[];
@@ -83,9 +85,9 @@ export type Campaign = {
   id: string;
   brandId: string;
   name: string;
+  slug?: string;
   isActive: boolean;
   sharePrivacy?: CampaignPrivacy;
-  serviceability?: CampaignServiceability;
   startDate?: string;
   endDate?: string;
   fulfillmentSettings?: FulfillmentSettings;
@@ -104,6 +106,7 @@ export type Campaign = {
     rating: number;
     showPopularity: boolean;
   };
+  allowPickup?: boolean;
   ctaConfig?: {
     enabled: boolean;
     text: string;
@@ -183,6 +186,10 @@ export type Order = {
   paymentStatus: PaymentStatus;
   refundStatus: RefundStatus;
   orderVariant: OrderVariant;
+  orderType?: 'DELIVERY' | 'PICKUP';
+  pickupCode?: string;
+  pickupStoreId?: string;
+  pickupStatus?: 'PENDING' | 'READY' | 'COMPLETED' | 'CANCELLED';
   recipientName?: string;
   recipientContact?: string;
   recipientEmail?: string;

@@ -11,19 +11,17 @@ export function About() {
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           {/* Hero Video Banner */}
-          <div className="w-full aspect-[16/9] sm:aspect-[21/9] rounded-3xl overflow-hidden mb-12 shadow-2xl relative flex items-center justify-center bg-gray-900 border border-black/10">
+          <div className="w-full aspect-video rounded-3xl overflow-hidden mb-12 shadow-2xl relative flex items-center justify-center bg-gray-900 border border-black/10">
              <div className="absolute inset-0 bg-black/10 z-10 pointer-events-none"></div>
              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 z-10 pointer-events-none"></div>
-             <video 
-               src="/hero-video.mp4" 
-               autoPlay 
-               loop 
-               muted 
-               playsInline 
-               preload="auto"
-               className="absolute inset-0 w-full h-full object-cover object-center z-0 brightness-[1.10] contrast-[1.10] saturate-[1.10] filter"
-               poster={imgAboutHero}
-             />
+             <iframe 
+               src="https://player.cloudinary.com/embed/?cloud_name=dyizr5fqq&public_id=Title_QwikMeal___The_Last_Sup_scvrzt&fluid=true&autoplay=true&loop=true&muted=true&controls=true"
+               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+               allowFullScreen
+               frameBorder="0"
+               className="absolute inset-0 w-full h-full z-0"
+               title="About QwikMeal Video"
+             ></iframe>
           </div>
 
           <div className="max-w-4xl mx-auto text-center space-y-6 mt-16 mb-8">
