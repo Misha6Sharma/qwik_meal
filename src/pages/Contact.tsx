@@ -49,8 +49,8 @@ export function Contact() {
                     </div>
                     <div>
                       <p className="font-semibold text-gray-900 mb-1">Email Us</p>
-                      <a href="mailto:support@qwikmeal.com" className="text-gray-600 hover:text-red-600 transition-colors">
-                        support@qwikmeal.com
+                      <a href="mailto:Contact@qwikmeal.com" className="text-gray-600 hover:text-red-600 transition-colors">
+                        Contact@qwikmeal.com
                       </a>
                     </div>
                   </div>
@@ -62,7 +62,7 @@ export function Contact() {
                     <div>
                       <p className="font-semibold text-gray-900 mb-1">Call Us</p>
                       <p className="text-gray-600">
-                        +1 (555) 123-4567<br />
+                        +91 8800004656<br />
                         <span className="text-sm">Mon-Fri, 9am - 6pm</span>
                       </p>
                     </div>
@@ -75,9 +75,9 @@ export function Contact() {
                     <div>
                       <p className="font-semibold text-gray-900 mb-1">Office Location</p>
                       <p className="text-gray-600 leading-relaxed">
-                        123 Culinary Hub Avenue<br />
-                        Tech District, Suite 400<br />
-                        New York, NY 10001
+                        575, Gate No. 2, Saraswati Kunj II<br />
+                        Aardee City Sector 52<br />
+                        Gurgaon -122003
                       </p>
                     </div>
                   </div>

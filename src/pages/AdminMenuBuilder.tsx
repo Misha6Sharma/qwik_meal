@@ -1221,51 +1221,14 @@ export function AdminMenuBuilder() {
                 
                 return (
                   <>
-                    <div className="mb-6 flex flex-col items-center bg-gray-100/50 p-4 rounded-xl border border-gray-200">
-                      <h4 className="font-bold text-gray-800 mb-3 text-sm">Campaign Share Preview</h4>
-                      <div className="bg-white border border-gray-200 p-4 font-sans text-center rounded-lg shadow-sm w-full max-w-[280px]">
-                        <h1 className="text-xl font-black text-gray-900 mb-1 leading-tight line-clamp-2">{c?.name || 'Special Offer'}</h1>
-                        <h2 className="text-sm font-bold text-red-600 mb-3">{b?.name || 'QwikMeal Partner'}</h2>
-                        {waIncludeBanner && activeItems.length > 0 && (
-                          <div className="bg-gray-50 border border-gray-100 rounded-lg p-2 mb-3">
-                            <img src={activeItems[0].mealImage || imgFallback} alt="Banner" className="w-full h-auto max-h-[100px] object-contain rounded-md" />
-                          </div>
-                        )}
-                        {waIncludeQR && (
-                          <div className="flex flex-col items-center">
-                            <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-100">
-                              <QRCodeSVG value={url} size={100} level="H" />
-                            </div>
-                            <p className="text-[10px] uppercase tracking-wider font-bold text-gray-500 mt-2">Scan to Order</p>
-                          </div>
-                        )}
-                        <div className="text-[10px] text-gray-400 font-medium pt-2 mt-3 border-t border-gray-100 truncate">
-                          {window.location.origin}/c/{c?.slug || campaignId}
-                        </div>
-                      </div>
-                      
-                      <div className="flex w-full gap-3 mt-4">
+                    {/* Campaign Quick Actions Removed for Clutter Reduction */}
+                    <div className="flex w-full gap-3 mb-6">
                         <button
                           onClick={async () => {
                               const flyerElement = document.getElementById('whatsapp-flyer-render');
                               if (flyerElement) {
-                                const origPos = flyerElement.style.position;
-                                const origTop = flyerElement.style.top;
-                                const origLeft = flyerElement.style.left;
-                                const origZ = flyerElement.style.zIndex;
-                                
-                                flyerElement.style.position = 'fixed';
-                                flyerElement.style.top = '0px';
-                                flyerElement.style.left = '0px';
-                                flyerElement.style.zIndex = '-9999';
-
                                 await new Promise(r => setTimeout(r, 150));
                                 const dataUrl = await toJpeg(flyerElement, { pixelRatio: 2, quality: 0.85, skipAutoScale: true, backgroundColor: '#ffffff' });
-                                
-                                flyerElement.style.position = origPos;
-                                flyerElement.style.top = origTop;
-                                flyerElement.style.left = origLeft;
-                                flyerElement.style.zIndex = origZ;
 
                                 const fetchRes = await fetch(dataUrl);
                                 const blob = await fetchRes.blob();
@@ -1293,7 +1256,6 @@ export function AdminMenuBuilder() {
                           <Copy size={16} className="text-gray-500" /> Copy Link
                         </button>
                       </div>
-                    </div>
 
                     <div className="mb-6">
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Privacy</label>
@@ -1422,23 +1384,8 @@ Powered by QwikMeal
                             try {
                               const flyerElement = document.getElementById('whatsapp-flyer-render');
                               if (flyerElement) {
-                                const origPos = flyerElement.style.position;
-                                const origTop = flyerElement.style.top;
-                                const origLeft = flyerElement.style.left;
-                                const origZ = flyerElement.style.zIndex;
-                                
-                                flyerElement.style.position = 'fixed';
-                                flyerElement.style.top = '0px';
-                                flyerElement.style.left = '0px';
-                                flyerElement.style.zIndex = '-9999';
-
                                 await new Promise(resolve => setTimeout(resolve, 300));
                                 const dataUrl = await toJpeg(flyerElement, { pixelRatio: 2, quality: 0.85, skipAutoScale: true, backgroundColor: '#ffffff' });
-                                
-                                flyerElement.style.position = origPos;
-                                flyerElement.style.top = origTop;
-                                flyerElement.style.left = origLeft;
-                                flyerElement.style.zIndex = origZ;
 
                                 const fetchRes = await fetch(dataUrl);
                                 const blob = await fetchRes.blob();
@@ -1527,7 +1474,7 @@ Powered by QwikMeal
                     </div>
 
                     {/* Hidden Flyer for Rendering */}
-                    <div id="whatsapp-flyer-render" className="fixed top-0 left-0 bg-white w-[600px] border border-gray-200 p-8 z-[-100] font-sans" style={{ pointerEvents: 'none' }}>
+                    <div id="whatsapp-flyer-render" className="fixed bg-white w-[600px] border border-gray-200 p-8 font-sans" style={{ left: '-9999px', top: '-9999px', pointerEvents: 'none' }}>
                       <div className="text-center mb-6">
                         <h1 className="text-3xl font-black text-gray-900 mb-2">{c?.name || 'Special Offer'}</h1>
                         <h2 className="text-xl font-bold text-red-600">{b?.name || 'QwikMeal Partner'}</h2>

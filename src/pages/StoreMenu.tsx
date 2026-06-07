@@ -6,6 +6,7 @@ import { getCampaigns } from '../campaigns';
 import { CartItem, OrderVariant, Campaign, Brand, MenuItem } from '../types';
 import { authService } from '../auth';
 import { dbService } from '../db';
+import { loadRazorpayScript, createRazorpayOrder, handleRazorpayCheckout, checkRazorpayOrderStatus } from '../lib/razorpay';
 import { jsPDF } from 'jspdf';
 import { toPng } from 'html-to-image';
 import { QRCodeSVG } from 'qrcode.react';
@@ -58,7 +59,37 @@ export function StoreMenu() {
   const [deliveryTime, setDeliveryTime] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   
+  useEffect(() => {
+    const checkPendingPayment = async () => {
+      const pOrderId = localStorage.getItem('qwikstore_pending_order_id');
+      const pRzpId = localStorage.getItem('qwikstore_pending_rzp_order_id');
+      
+      if (pOrderId && pRzpId) {
+        try {
+          const statusData = await checkRazorpayOrderStatus(pRzpId);
+          if (statusData.status === 'paid' || statusData.status === 'captured') {
+             localStorage.removeItem('qwikstore_pending_order_id');
+             localStorage.removeItem('qwikstore_pending_rzp_order_id');
+             
+             dbService.updateOrder(pOrderId, {
+               status: 'PROCESSING', 
+               paymentStatus: 'PAID'
+             }).catch(e => console.error("Recovery DB update failed", e));
+
+             setPlacedOrderId(pOrderId);
+             setOrderSuccess(true);
+             setCart([]);
+          }
+        } catch (e) {
+          console.warn("Payment recovery polling failed", e);
+        }
+      }
+    };
+    checkPendingPayment();
+  }, []);
+
   const activeCampaigns = allCampaigns.filter(c => c.brandId === activeBrandId && c.isActive);
   const currentCampaign = activeCampaignId ? allCampaigns.find(c => c.id === activeCampaignId) : null;
   
@@ -84,6 +115,8 @@ export function StoreMenu() {
   };
   
   const isServiceable = validateServiceability();
+  const hasServiceabilityRequirement = activeBrand?.serviceability?.enabled && (activeBrand.serviceability.coverageType === 'PINCODES' || activeBrand.serviceability.coverageType === 'CITIES');
+  const serviceabilityPassed = hasServiceabilityRequirement ? (isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6) : true;
 
   useEffect(() => {
     if (deliveryPinCode && deliveryPinCode.length === 6 && activeCampaignId) {
@@ -176,124 +209,199 @@ export function StoreMenu() {
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isProcessing) return;
     setCheckoutError('');
+    setIsProcessing(true);
 
-    if (orderType === 'DELIVERY') {
-      if (orderVariant === 'OTHER') {
-        if (!recipientName || !recipientContact || !deliveryHouseNo || !deliveryStreet || !deliveryPinCode || !deliveryContact || !deliveryDate || !deliveryTime) {
-          setCheckoutError('Please fill all mandatory fields including delivery schedule.');
-          return;
+    try {
+      if (orderType === 'DELIVERY') {
+        if (orderVariant === 'OTHER') {
+          if (!recipientName || !recipientContact || !deliveryHouseNo || !deliveryStreet || !deliveryPinCode || !deliveryContact || !deliveryDate || !deliveryTime) {
+            setCheckoutError('Please fill all mandatory fields including delivery schedule.');
+            return;
+          }
+          if (!/^\d{10}$/.test(recipientContact) || !/^\d{10}$/.test(deliveryContact)) {
+            setCheckoutError('Contact numbers must be 10 digits.');
+            return;
+          }
+        } else {
+          if (!deliveryHouseNo || !deliveryStreet || !deliveryContact || !deliveryPinCode || !deliveryDate || !deliveryTime) {
+             setCheckoutError('Delivery address, contact and scheduling are required.');
+             return;
+          }
         }
-        if (!/^\d{10}$/.test(recipientContact) || !/^\d{10}$/.test(deliveryContact)) {
-          setCheckoutError('Contact numbers must be 10 digits.');
+
+        if (!isServiceable) {
+          setCheckoutError('Sorry, this brand is currently unavailable at your selected delivery location.');
+          if (activeCampaignId) {
+            dbService.addCampaignLog({
+              id: `LOG-${Date.now()}`,
+              campaignId: activeCampaignId,
+              timestamp: new Date().toISOString(),
+              action: 'ORDER_BLOCKED_NON_SERVICEABLE',
+              performedBy: user?.name || 'Guest',
+              details: `Order blocked. Reasons: Pincode ${deliveryPinCode} is not serviceable.`,
+              pincode: deliveryPinCode
+            });
+          }
           return;
         }
       } else {
-        if (!deliveryHouseNo || !deliveryStreet || !deliveryContact || !deliveryPinCode || !deliveryDate || !deliveryTime) {
-           setCheckoutError('Delivery address, contact and scheduling are required.');
-           return;
-        }
+         if (!deliveryContact || !deliveryDate || !deliveryTime) {
+            setCheckoutError('Contact number and pickup schedule are required.');
+            return;
+         }
       }
 
-      if (!isServiceable) {
-        setCheckoutError('Sorry, this brand is currently unavailable at your selected delivery location.');
-        if (activeCampaignId) {
-          dbService.addCampaignLog({
-            id: `LOG-${Date.now()}`,
-            campaignId: activeCampaignId,
-            timestamp: new Date().toISOString(),
-            action: 'ORDER_BLOCKED_NON_SERVICEABLE',
-            performedBy: user?.name || 'Guest',
-            details: `Order blocked. Reasons: Pincode ${deliveryPinCode} is not serviceable.`,
-            pincode: deliveryPinCode
-          });
-        }
+      const today = new Date().toISOString().split('T')[0];
+      if (deliveryDate < today) {
+        setCheckoutError('Date cannot be in the past.');
         return;
       }
-    } else {
-       if (!deliveryContact || !deliveryDate || !deliveryTime) {
-          setCheckoutError('Contact number and pickup schedule are required.');
+
+      const orderId = `ORD-${Date.now()}`;
+      const pickupCode = orderType === 'PICKUP' ? Math.random().toString(36).substring(2, 8).toUpperCase() : undefined;
+      if (pickupCode) setPlacedPickupCode(pickupCode);
+      const orderItems = cart.map(c => {
+        const { mealImage, ...strippedMenuItem } = c.menuItem;
+        return { ...c, menuItem: strippedMenuItem };
+      });
+
+      const triggerOrder = async (txRef?: string, isPending: boolean = false) => {
+        const order: any = {
+          id: orderId,
+          userId: user?.id || 'guest',
+          campaignId: activeCampaignId || undefined,
+          campaignName: currentCampaign?.name,
+          campaignExpiry: currentCampaign?.endDate || '',
+          scheduledDeliveryDate: deliveryDate,
+          scheduledDeliveryTime: deliveryTime,
+          items: orderItems,
+          totalAmount: finalTotal,
+          status: isPending ? 'PENDING_PAYMENT' : 'PROCESSING',
+          paymentStatus: isPending ? 'PENDING' : 'PAID', // Simplified for simulation
+          paymentReference: txRef,
+          refundStatus: 'NONE',
+          orderVariant,
+          orderType,
+          pickupCode,
+          pickupStatus: orderType === 'PICKUP' ? 'PENDING' : undefined,
+          recipientName,
+          recipientContact,
+          recipientEmail,
+          deliveryAddress: orderType === 'DELIVERY' ? `${deliveryHouseNo}, ${deliveryStreet}${deliveryCity ? ', ' + deliveryCity : ''}${deliveryState ? ', ' + deliveryState : ''}` : '',
+          deliveryPinCode: orderType === 'DELIVERY' ? deliveryPinCode : '',
+          deliveryContact,
+          deliveryDate,
+          deliveryTime,
+          createdAt: new Date().toISOString(),
+          auditLogs: [{
+            id: `LOG-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            action: isPending ? 'ORDER_INITIATED' : 'ORDER_PLACED',
+            performedBy: user?.id || 'guest',
+            details: isPending ? 'Order initiated pending payment' : 'Order placed and payment processed'
+          }]
+        };
+
+        if (isPending) {
+           try {
+             await dbService.addOrder(order);
+           } catch (e) {
+             console.warn('Firebase sync failed for pending order', e);
+           }
+           return;
+        }
+
+        // Set UI state immediately so user sees success even if Firebase takes a second to reconnect after UPI intent
+        setPlacedOrderId(orderId);
+        setOrderSuccess(true);
+        setCart([]);
+        
+        try {
+          await dbService.updateOrder(orderId, {
+            status: 'PROCESSING',
+            paymentStatus: 'PAID',
+            paymentReference: txRef,
+            auditLogs: [...order.auditLogs, {
+              id: `LOG-${Date.now() + 1}`,
+              timestamp: new Date().toISOString(),
+              action: 'PAYMENT_SUCCESS',
+              performedBy: 'System',
+              details: 'Payment processed successfully'
+            }]
+          });
+        } catch (e) {
+          console.warn('Firebase sync failed for order update', e);
+        }
+
+        // Transaction Audit
+        const txAudit = {
+          id: `TXN-${Date.now()}`,
+          transactionId: txRef || `PAY-${Date.now()}`,
+          orderId: order.id,
+          userId: user?.id || 'guest',
+          amount: finalTotal,
+          paymentMethod: 'ONLINE',
+          paymentStatus: 'PAID',
+          refundStatus: 'NONE',
+          timestamp: new Date().toISOString()
+        };
+        
+        try {
+          await dbService.addTransaction(txAudit);
+        } catch (e) {
+          console.warn('Firebase sync failed for transaction', e);
+        }
+      };
+
+      try {
+        const isLoaded = await loadRazorpayScript();
+        if (!isLoaded) {
+          setCheckoutError('Failed to load Razorpay SDK');
           return;
-       }
+        }
+        
+        const razorpayOrder = await createRazorpayOrder(finalTotal);
+
+        await triggerOrder(razorpayOrder.id, true);
+
+        const options: any = {
+          key: razorpayOrder.key_id,
+          amount: razorpayOrder.amount,
+          currency: razorpayOrder.currency,
+          name: activeBrand?.name || 'QwikMeal',
+          description: 'Store Order',
+          order_id: razorpayOrder.id,
+          prefill: {
+            name: recipientName || '',
+            contact: recipientContact || '',
+            email: recipientEmail || '',
+          },
+          theme: {
+            color: '#fb923c', // Orange
+          }
+        };
+
+        try {
+          localStorage.setItem('qwikstore_pending_order_id', orderId);
+          localStorage.setItem('qwikstore_pending_rzp_order_id', razorpayOrder.id);
+          
+          const response = await handleRazorpayCheckout(options);
+          
+          localStorage.removeItem('qwikstore_pending_order_id');
+          localStorage.removeItem('qwikstore_pending_rzp_order_id');
+          
+          await triggerOrder(response.razorpay_payment_id, false);
+        } catch (e: any) {
+          setCheckoutError('Payment could not be completed: ' + (e.message || "Cancelled"));
+        }
+      } catch (err: any) {
+        setCheckoutError('Payment error: ' + err.message);
+      }
+    } finally {
+      setIsProcessing(false);
     }
-
-    const today = new Date().toISOString().split('T')[0];
-    if (deliveryDate < today) {
-      setCheckoutError('Date cannot be in the past.');
-      return;
-    }
-
-    const orderId = `ORD-${Date.now()}`;
-    const pickupCode = orderType === 'PICKUP' ? Math.random().toString(36).substring(2, 8).toUpperCase() : undefined;
-    if (pickupCode) setPlacedPickupCode(pickupCode);
-    const orderItems = cart.map(c => {
-      const { mealImage, ...strippedMenuItem } = c.menuItem;
-      return { ...c, menuItem: strippedMenuItem };
-    });
-
-    const order: any = {
-      id: orderId,
-      userId: user?.id || 'guest',
-      campaignId: activeCampaignId || undefined,
-      campaignName: currentCampaign?.name,
-      campaignExpiry: currentCampaign?.endDate || '',
-      scheduledDeliveryDate: deliveryDate,
-      scheduledDeliveryTime: deliveryTime,
-      items: orderItems,
-      totalAmount: finalTotal,
-      status: 'PROCESSING',
-      paymentStatus: 'PAID', // Simplified for simulation
-      refundStatus: 'NONE',
-      orderVariant,
-      orderType,
-      pickupCode,
-      pickupStatus: orderType === 'PICKUP' ? 'PENDING' : undefined,
-      recipientName,
-      recipientContact,
-      recipientEmail,
-      deliveryAddress: orderType === 'DELIVERY' ? `${deliveryHouseNo}, ${deliveryStreet}${deliveryCity ? ', ' + deliveryCity : ''}${deliveryState ? ', ' + deliveryState : ''}` : '',
-      deliveryPinCode: orderType === 'DELIVERY' ? deliveryPinCode : '',
-      deliveryContact,
-      deliveryDate,
-      deliveryTime,
-      createdAt: new Date().toISOString(),
-      auditLogs: [{
-        id: `LOG-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        action: 'ORDER_PLACED',
-        performedBy: user?.id || 'guest',
-        details: 'Order placed and payment processed'
-      }]
-    };
-    
-    try {
-      await dbService.addOrder(order);
-    } catch (e) {
-      console.warn('Firebase sync failed for order', e);
-    }
-
-    // Transaction Audit
-    const txAudit = {
-      id: `TXN-${Date.now()}`,
-      transactionId: `PAY-${Date.now()}`,
-      orderId: order.id,
-      userId: user?.id || 'guest',
-      amount: finalTotal,
-      paymentMethod: 'CREDIT_CARD',
-      paymentStatus: 'PAID',
-      refundStatus: 'NONE',
-      timestamp: new Date().toISOString()
-    };
-    
-    try {
-      await dbService.addTransaction(txAudit);
-    } catch (e) {
-      console.warn('Firebase sync failed for transaction', e);
-    }
-
-    setPlacedOrderId(orderId);
-    setOrderSuccess(true);
-    setCart([]);
   };
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -581,11 +689,28 @@ export function StoreMenu() {
                 )}
               </div>
               )}
+
+              {/* Event Catering Promotional Banner */}
+              <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-8 mt-12 shadow-sm text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="md:max-w-2xl">
+                  <h3 className="text-xl md:text-2xl font-bold text-indigo-900 mb-2">🎉 Planning an Office Party, Birthday, Family Gathering or Corporate Event?</h3>
+                  <p className="text-indigo-700 text-sm md:text-base leading-relaxed">
+                    Get delicious food from your favorite brands for groups of any size. Special pricing and customized meal solutions available.
+                  </p>
+                </div>
+                <div className="shrink-0 flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                  <a href="/contact" className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition flex items-center justify-center gap-2 w-full md:w-auto">
+                    Request a Catering Quote
+                  </a>
+                </div>
+              </div>
+
             </div>
           )}
         </div>
 
         {/* Cart/Checkout Sidebar */}
+        {serviceabilityPassed && (
         <div className="w-full lg:w-[400px] shrink-0">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm lg:sticky lg:top-24 overflow-hidden flex flex-col h-full lg:max-h-[calc(100dvh-8rem)]">
             <div className="bg-gray-900 p-4 text-white flex items-center justify-between relative">
@@ -690,7 +815,7 @@ export function StoreMenu() {
                     )}
                   </div>
                 ) : (
-                  <form onSubmit={handlePlaceOrder} className="space-y-6">
+                  <form id="checkout-form" onSubmit={handlePlaceOrder} className="space-y-6">
                     {checkoutError && (
                       <div className="p-3 bg-red-50 text-red-600 text-xs rounded border border-red-100">
                         {checkoutError}
@@ -887,10 +1012,14 @@ export function StoreMenu() {
                          Back
                        </button>
                        <button 
-                         onClick={handlePlaceOrder}
-                         className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition-colors text-sm flex items-center gap-2 cursor-pointer"
+                         type="submit"
+                         form="checkout-form"
+                         disabled={isProcessing}
+                         className={`font-bold py-2 px-6 rounded-lg transition-colors text-sm flex items-center gap-2 cursor-pointer ${
+                          isProcessing ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white'
+                         }`}
                        >
-                         Pay
+                         {isProcessing ? 'Processing...' : 'Pay'}
                        </button>
                     </div>
                    )}
@@ -899,6 +1028,7 @@ export function StoreMenu() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {orderSuccess && orderType === 'PICKUP' && placedOrderId && (

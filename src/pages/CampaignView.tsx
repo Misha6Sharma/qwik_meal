@@ -6,6 +6,7 @@ import { getBrands } from '../brands';
 import { getCampaigns } from '../campaigns';
 import { dbService } from '../db';
 import { authService } from '../auth';
+import { loadRazorpayScript, createRazorpayOrder, handleRazorpayCheckout, checkRazorpayOrderStatus } from '../lib/razorpay';
 
 type CheckoutStep = 'PRODUCTS' | 'DELIVERY' | 'PAYMENT' | 'SUCCESS';
 
@@ -21,6 +22,7 @@ export function CampaignView() {
   
   const [checkoutStep, setCheckoutStep] = useState<CheckoutStep>('PRODUCTS');
   const [cart, setCart] = useState<{ [itemId: string]: number }>({});
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const [deliveryForm, setDeliveryForm] = useState({
     name: '',
@@ -36,7 +38,6 @@ export function CampaignView() {
     instructions: ''
   });
 
-  const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [orderId, setOrderId] = useState<string | null>(null);
   const [savedAmount, setSavedAmount] = useState<number>(0);
 
@@ -55,6 +56,37 @@ export function CampaignView() {
 
   const [deliveryPinCode, setDeliveryPinCode] = useState('');
   
+  useEffect(() => {
+    const checkPendingPayment = async () => {
+      const pOrderId = localStorage.getItem('qwikmeal_pending_order_id');
+      const pRzpId = localStorage.getItem('qwikmeal_pending_rzp_order_id');
+      
+      if (pOrderId && pRzpId) {
+        try {
+          const statusData = await checkRazorpayOrderStatus(pRzpId);
+          if (statusData.status === 'paid' || statusData.status === 'captured') {
+             // Recover successful payment
+             localStorage.removeItem('qwikmeal_pending_order_id');
+             localStorage.removeItem('qwikmeal_pending_rzp_order_id');
+             
+             dbService.updateOrder(pOrderId, {
+               status: 'CONFIRMED', 
+               paymentStatus: 'PAID'
+             }).catch(e => console.error("Recovery DB update failed", e));
+
+             setOrderId(pOrderId);
+             setSavedAmount(0); // Cannot recover exact savings amount easily on page reload
+             setCheckoutStep('SUCCESS');
+             setCart({});
+          }
+        } catch (e) {
+          console.warn("Payment recovery polling failed", e);
+        }
+      }
+    };
+    checkPendingPayment();
+  }, []);
+  
   const validateServiceability = () => {
     // Brand serviceability validation overrides campaign serviceability? The prompt says "Validate the customer's delivery address against the serviceability rules configured for that specific brand."
     // Let's use brand.serviceability.
@@ -71,6 +103,8 @@ export function CampaignView() {
     return true;
   };
   const isServiceable = validateServiceability();
+  const hasServiceabilityRequirement = brand?.serviceability?.enabled && (brand.serviceability.coverageType === 'PINCODES' || brand.serviceability.coverageType === 'CITIES');
+  const serviceabilityPassed = hasServiceabilityRequirement ? (isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6) : true;
 
   const [currentUser, setCurrentUser] = useState(authService.getUser());
 
@@ -340,18 +374,46 @@ export function CampaignView() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   
+  const isDeliveryFormValid = () => {
+    return !!(
+      deliveryForm.name &&
+      deliveryForm.phone.length === 10 &&
+      deliveryForm.email &&
+      deliveryForm.address &&
+      deliveryForm.pincode &&
+      deliveryForm.city &&
+      deliveryForm.state &&
+      deliveryForm.deliveryDate &&
+      deliveryForm.timeSlot
+    );
+  };
+
   const proceedToPayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isServiceable) {
       alert("Sorry, this brand is currently unavailable at your selected delivery location.");
       return;
     }
-    setCheckoutStep('PAYMENT');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    submitOrder();
   };
 
   const submitOrder = async () => {
-    if (Object.keys(cart).length === 0) return;
+    if (Object.keys(cart).length === 0 || isProcessing) return;
+    setIsProcessing(true);
+
+    if (!deliveryForm.name || !deliveryForm.phone || !deliveryForm.address || !deliveryForm.city || !deliveryForm.pincode || !deliveryForm.deliveryDate || !deliveryForm.timeSlot) {
+      setCheckoutStep('DELIVERY');
+      setIsProcessing(false);
+      setTimeout(() => {
+        const form = document.getElementById('delivery-form') as HTMLFormElement;
+        if (form) {
+          form.reportValidity();
+          // Scroll slightly up to ensure the prompt is well within view
+          form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+      return;
+    }
     
     const orderItems = Object.entries(cart).map(([cartKey, quantity]) => {
       const [itemId, variantSize] = cartKey.split('_');
@@ -383,9 +445,9 @@ export function CampaignView() {
       totalAmount: grandTotal,
       gstAmount: gstTotal,
       savingsAmount: totalSavings,
-      paymentMethod,
+      paymentMethod: 'ONLINE',
       status: 'CONFIRMED',
-      paymentStatus: paymentMethod === 'Cash on Delivery' ? 'PENDING' : 'PAID',
+      paymentStatus: 'PAID',
       refundStatus: 'NONE',
       orderVariant: 'SELF',
       deliveryDate: deliveryForm.deliveryDate,
@@ -402,15 +464,70 @@ export function CampaignView() {
     };
 
     try {
-      const cleanedOrder = JSON.parse(JSON.stringify(newOrder));
-      await dbService.addOrder(cleanedOrder);
-      setOrderId(generatedOrderId);
-      setSavedAmount(totalSavings);
-      setCheckoutStep('SUCCESS');
-      setCart({});
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        alert('Failed to load Razorpay SDK. Are you online?');
+        return;
+      }
+
+      const razorpayOrder = await createRazorpayOrder(grandTotal);
+
+      const pendingOrder = JSON.parse(JSON.stringify({
+        ...newOrder,
+        status: 'PENDING_PAYMENT',
+        paymentStatus: 'PENDING',
+        paymentReference: razorpayOrder.id
+      }));
+      
+      await dbService.addOrder(pendingOrder);
+
+      const options = {
+        key: razorpayOrder.key_id, 
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        name: brand!.name,
+        description: campaign!.name,
+        order_id: razorpayOrder.id,
+        prefill: {
+          name: deliveryForm.name,
+          email: deliveryForm.email,
+          contact: deliveryForm.phone,
+        },
+        theme: {
+          color: '#ef4444', 
+        },
+      };
+      
+      try {
+        localStorage.setItem('qwikmeal_pending_order_id', generatedOrderId);
+        localStorage.setItem('qwikmeal_pending_rzp_order_id', razorpayOrder.id);
+        
+        const response = await handleRazorpayCheckout(options);
+        
+        localStorage.removeItem('qwikmeal_pending_order_id');
+        localStorage.removeItem('qwikmeal_pending_rzp_order_id');
+        // Update UI immediately
+        setOrderId(generatedOrderId);
+        setSavedAmount(totalSavings);
+        setCheckoutStep('SUCCESS');
+        setCart({});
+        
+        dbService.updateOrder(generatedOrderId, {
+          status: 'CONFIRMED',
+          paymentStatus: 'PAID',
+          paymentReference: response.razorpay_payment_id
+        }).catch(dbErr => {
+          console.error("Firebase sync delayed or failed:", dbErr);
+        });
+      } catch (checkoutErr: any) {
+        console.error("Payment failed or cancelled:", checkoutErr);
+        alert("Payment could not be completed: " + (checkoutErr.message || "Cancelled"));
+      }
     } catch (err: any) {
       console.error(err);
       alert("Error placing order: " + (err.message || "Unknown error"));
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -625,24 +742,24 @@ export function CampaignView() {
                     <div className="space-y-4">
                       <h3 className="font-bold text-gray-900 border-b pb-2">Contact Information</h3>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                        <input required type="text" value={deliveryForm.name} onChange={e => setDeliveryForm({...deliveryForm, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="John Doe" />
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-500">*</span></label>
+                        <input required type="text" value={deliveryForm.name} onChange={e => setDeliveryForm({...deliveryForm, name: e.target.value})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${!deliveryForm.name ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`} placeholder="John Doe" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
-                        <input required type="tel" pattern="^[6-9]\d{9}$" minLength={10} maxLength={10} title="Please enter a valid 10-digit mobile number" value={deliveryForm.phone} onChange={e => setDeliveryForm({...deliveryForm, phone: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="+91 9876543210" />
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number <span className="text-red-500">*</span></label>
+                        <input required type="tel" pattern="^[6-9]\d{9}$" minLength={10} maxLength={10} title="Please enter a valid 10-digit mobile number" value={deliveryForm.phone} onChange={e => setDeliveryForm({...deliveryForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10)})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${(!deliveryForm.phone || deliveryForm.phone.length !== 10) ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`} placeholder="9876543210" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                        <input required type="email" value={deliveryForm.email} onChange={e => setDeliveryForm({...deliveryForm, email: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="john@example.com" />
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Address <span className="text-red-500">*</span></label>
+                        <input required type="email" value={deliveryForm.email} onChange={e => setDeliveryForm({...deliveryForm, email: e.target.value})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${!deliveryForm.email ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`} placeholder="john@example.com" />
                       </div>
                     </div>
                     
                     <div className="space-y-4">
                       <h3 className="font-bold text-gray-900 border-b pb-2">Delivery Information</h3>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">House/Flat/Block No. & Street *</label>
-                        <input required type="text" value={deliveryForm.address} onChange={e => setDeliveryForm({...deliveryForm, address: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2" placeholder="123 Main St, Apartment 4B" />
+                        <label className="block text-sm font-medium text-gray-700 mb-1">House/Flat/Block No. & Street <span className="text-red-500">*</span></label>
+                        <input required type="text" value={deliveryForm.address} onChange={e => setDeliveryForm({...deliveryForm, address: e.target.value})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${!deliveryForm.address ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`} placeholder="123 Main St, Apartment 4B" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Landmark</label>
@@ -675,7 +792,7 @@ export function CampaignView() {
                     <h3 className="font-bold text-gray-900 border-b pb-2">Preferences</h3>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date <span className="text-red-500">*</span></label>
                         <input 
                           required 
                           type="date" 
@@ -684,19 +801,20 @@ export function CampaignView() {
                           readOnly={campaign?.fulfillmentSettings?.mode === 'FIXED'}
                           value={deliveryForm.deliveryDate} 
                           onChange={e => setDeliveryForm({...deliveryForm, deliveryDate: e.target.value})} 
-                          className={`w-full border rounded-lg px-4 py-2 ${campaign?.fulfillmentSettings?.mode === 'FIXED' ? 'bg-gray-50 border-gray-200 text-gray-600' : 'border-gray-300'}`} 
+                          className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${campaign?.fulfillmentSettings?.mode === 'FIXED' ? 'bg-gray-50 border border-gray-200 text-gray-600' : (!deliveryForm.deliveryDate ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500')}`} 
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Time Slot</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Time Slot <span className="text-red-500">*</span></label>
                         {campaign?.fulfillmentSettings?.mode === 'FIXED' ? (
                           <input 
                             readOnly
                             value={deliveryForm.timeSlot}
-                            className="w-full border border-gray-200 rounded-lg px-4 py-2 bg-gray-50 text-gray-600"
+                            className="w-full border border-gray-200 rounded-lg px-4 py-2 bg-gray-50 text-gray-600 outline-none"
                           />
                         ) : (
-                          <select required value={deliveryForm.timeSlot} onChange={e => setDeliveryForm({...deliveryForm, timeSlot: e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2">
+                          <select required value={deliveryForm.timeSlot} onChange={e => setDeliveryForm({...deliveryForm, timeSlot: e.target.value})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${!deliveryForm.timeSlot ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`}>
+                            <option value="">Select a time slot</option>
                             <option>Lunch (12:30 PM - 1:30 PM)</option>
                             <option>Late Lunch (1:30 PM - 2:30 PM)</option>
                             <option>Evening Snacks (4:30 PM - 5:30 PM)</option>
@@ -711,32 +829,6 @@ export function CampaignView() {
                     </div>
                   </div>
                 </form>
-              </div>
-            ) : checkoutStep === 'PAYMENT' ? (
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100">
-                  <button onClick={() => setCheckoutStep('DELIVERY')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition">
-                    <ChevronLeft size={24} />
-                  </button>
-                  <h2 className="text-2xl font-bold text-gray-900">Payment Process</h2>
-                </div>
-                
-                <h3 className="font-bold text-gray-900 mb-4 text-lg">Select Payment Method</h3>
-                <div className="grid sm:grid-cols-2 gap-4 mb-8">
-                  {['UPI', 'Credit Card', 'Debit Card', 'Net Banking', 'Cash on Delivery'].map((method) => (
-                    <div 
-                      key={method}
-                      onClick={() => setPaymentMethod(method)}
-                      className={`p-4 border rounded-xl flex items-center gap-4 cursor-pointer transition ${paymentMethod === method ? 'border-red-600 bg-red-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
-                    >
-                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${paymentMethod === method ? 'border-red-600' : 'border-gray-300'}`}>
-                        {paymentMethod === method && <div className="w-2.5 h-2.5 bg-red-600 rounded-full"></div>}
-                      </div>
-                      <CreditCard className={paymentMethod === method ? 'text-red-600' : 'text-gray-500'} />
-                      <span className={`font-medium ${paymentMethod === method ? 'text-red-900' : 'text-gray-700'}`}>{method}</span>
-                    </div>
-                  ))}
-                </div>
               </div>
             ) : (
               <div>
@@ -769,9 +861,11 @@ export function CampaignView() {
                   </div>
                 ) : (
                   <>
-                  <h2 id="menu-items-section" className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                    Available Items ({items.length})
-                  </h2>
+                  {serviceabilityPassed && (
+                    <h2 id="menu-items-section" className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                      Available Items ({items.length})
+                    </h2>
+                  )}
 
                   {isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
                     <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center mb-8">
@@ -804,8 +898,9 @@ export function CampaignView() {
                     </div>
                   )}
 
-                  <div className={`grid sm:grid-cols-2 gap-6 ${(!isServiceable && !!deliveryPinCode) || isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
-                    {items.length === 0 ? (
+                  {serviceabilityPassed && (
+                    <div className={`grid sm:grid-cols-2 gap-6 ${isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
+                      {items.length === 0 ? (
                       <p className="text-gray-500">No items configured for this campaign.</p>
                     ) : items.map(item => {
                       const activeVariants = item.variants?.filter(v => v.isActive) || [];
@@ -907,22 +1002,23 @@ export function CampaignView() {
                     );
                   })}
                 </div>
+              )}
 
-                {/* Event Planning Section moved below menu items */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-8 mt-12 shadow-sm text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
+                {/* Event Catering Promotional Banner */}
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-8 mt-12 shadow-sm text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
                   <div className="md:max-w-2xl">
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Planning an Office Party, Birthday, Family Gathering or Corporate Event?</h3>
-                    <p className="text-blue-700 text-sm leading-relaxed">
-                      Need food for a larger group? Let our team help you plan the perfect event with customized menus and special pricing.
+                    <h3 className="text-xl md:text-2xl font-bold text-indigo-900 mb-2">🎉 Planning an Office Party, Birthday, Family Gathering or Corporate Event?</h3>
+                    <p className="text-indigo-700 text-sm md:text-base leading-relaxed">
+                      Get delicious food from your favorite brands for groups of any size. Special pricing and customized meal solutions available.
                     </p>
                   </div>
                   <div className="shrink-0 flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                    <button onClick={() => setShowEventPrompt(true)} className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm transition flex items-center justify-center gap-2">
-                      🎉 Plan My Event
+                    <button 
+                      onClick={() => { setShowEventPrompt(true); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}}
+                      className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition flex items-center justify-center gap-2 w-full md:w-auto"
+                    >
+                      Request a Catering Quote
                     </button>
-                    <a href="tel:+919876543210" className="px-6 py-3 bg-white text-blue-700 border border-blue-200 rounded-lg font-bold hover:bg-blue-50 transition flex items-center justify-center gap-2">
-                      📞 Talk to an Expert
-                    </a>
                   </div>
                 </div>
                 </>
@@ -932,7 +1028,7 @@ export function CampaignView() {
           </div>
 
           {/* Right Sidebar - Cart / Summary */}
-          {checkoutStep !== 'SUCCESS' && (
+          {checkoutStep !== 'SUCCESS' && serviceabilityPassed && (
             <div className="md:col-span-1">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 sticky top-24">
                 <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -956,10 +1052,6 @@ export function CampaignView() {
                   <div className="space-y-4">
                     {checkoutStep === 'PRODUCTS' && (
                       <div className="space-y-4 mb-4">
-                        <div className="bg-orange-50 border border-orange-100 rounded-lg p-4 text-center">
-                          <h4 className="font-bold text-orange-900 mb-1">🎉 Great Choice!</h4>
-                          <p className="text-orange-700 text-xs">You're one step closer to a delicious meal. Add more items to maximize your savings and enjoy exclusive campaign benefits.</p>
-                        </div>
                         <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-sm">
                           <div className="font-bold text-red-800 mb-1 flex items-center gap-1">
                             🔥 Exclusive Campaign Benefits Active
@@ -1058,40 +1150,37 @@ export function CampaignView() {
                       </div>
                     </div>
 
-                    {getChargesAndBenefits().totalSavings > 0 && (
+                    {getChargesAndBenefits().totalSavings > 0 && isDeliveryFormValid() && (
                       <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-6">
-                        <h4 className="font-bold text-green-900 mb-2 flex items-center gap-2">
-                          🎉 Your Savings on This Order
-                        </h4>
-                        <div className="space-y-1 mb-3 text-sm">
-                          {getChargesAndBenefits().savings.product > 0 && (
-                            <div className="flex justify-between text-green-800">
-                              <span>Product Discount:</span>
-                              <span>₹{getChargesAndBenefits().savings.product} Saved</span>
-                            </div>
-                          )}
-                          {getChargesAndBenefits().savings.packaging > 0 && (
-                            <div className="flex justify-between text-green-800">
-                              <span>Packaging Charges Waived:</span>
-                              <span>₹{getChargesAndBenefits().savings.packaging} Saved</span>
-                            </div>
-                          )}
-                          {getChargesAndBenefits().savings.delivery > 0 && (
-                            <div className="flex justify-between text-green-800">
-                              <span>Delivery Charge Waived:</span>
-                              <span>₹{getChargesAndBenefits().savings.delivery} Saved</span>
-                            </div>
-                          )}
-                          {getChargesAndBenefits().savings.processing > 0 && (
-                            <div className="flex justify-between text-green-800">
-                              <span>Processing Fee Waived:</span>
-                              <span>₹{getChargesAndBenefits().savings.processing} Saved</span>
-                            </div>
-                          )}
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-bold text-green-900 text-lg flex items-center gap-2">
+                            🎉 You Save ₹{getChargesAndBenefits().totalSavings}
+                          </h4>
                         </div>
-                        <div className="border-t border-green-200 pt-2 font-bold text-green-900 flex justify-between">
-                          <span>Total Benefits Received</span>
-                          <span>₹{getChargesAndBenefits().totalSavings}</span>
+                        <div className="space-y-2">
+                          <h5 className="text-xs font-bold text-green-800 uppercase tracking-wider">Waived Charges & Discounts</h5>
+                          <ul className="text-sm text-green-800 space-y-1">
+                            {getChargesAndBenefits().savings.product > 0 && (
+                              <li className="flex items-center gap-2">
+                                <span className="text-green-600 font-bold">✓</span> Product Discount
+                              </li>
+                            )}
+                            {getChargesAndBenefits().savings.packaging > 0 && (
+                              <li className="flex items-center gap-2">
+                                <span className="text-green-600 font-bold">✓</span> Packaging
+                              </li>
+                            )}
+                            {getChargesAndBenefits().savings.delivery > 0 && (
+                              <li className="flex items-center gap-2">
+                                <span className="text-green-600 font-bold">✓</span> Delivery
+                              </li>
+                            )}
+                            {getChargesAndBenefits().savings.processing > 0 && (
+                              <li className="flex items-center gap-2">
+                                <span className="text-green-600 font-bold">✓</span> Processing
+                              </li>
+                            )}
+                          </ul>
                         </div>
                       </div>
                     )}
@@ -1106,48 +1195,23 @@ export function CampaignView() {
                       </button>
                     )}
 
-                    {checkoutStep === 'DELIVERY' && (
+                    {checkoutStep === 'DELIVERY' && isDeliveryFormValid() && (
                       <button 
                         form="delivery-form"
                         type="submit"
-                        className={`w-full font-bold py-3 px-4 rounded-lg transition shadow-lg mt-4 ${campaign.ctaConfig?.theme === 'teal' ? 'bg-teal-600 hover:bg-teal-700 text-white' : campaign.ctaConfig?.theme === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' : campaign.ctaConfig?.theme === 'orange' ? 'bg-orange-600 hover:bg-orange-700 text-white' : campaign.ctaConfig?.theme === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}
+                        disabled={isProcessing}
+                        className={`w-full font-bold py-3 px-4 rounded-lg transition shadow-lg mt-4 flex items-center justify-center gap-2 ${
+                          isProcessing ? 'bg-gray-400 text-white cursor-not-allowed' :
+                          campaign.ctaConfig?.theme === 'teal' ? 'bg-teal-600 hover:bg-teal-700 text-white' : campaign.ctaConfig?.theme === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' : campaign.ctaConfig?.theme === 'orange' ? 'bg-orange-600 hover:bg-orange-700 text-white' : campaign.ctaConfig?.theme === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}
                       >
-                        Proceed to Payment
-                      </button>
-                    )}
-
-                    {checkoutStep === 'PAYMENT' && (
-                      <button 
-                        onClick={submitOrder}
-                        className={`w-full font-bold py-3 px-4 rounded-lg transition shadow-lg mt-4 flex items-center justify-center gap-2 ${campaign.ctaConfig?.theme === 'teal' ? 'bg-teal-600 hover:bg-teal-700 text-white' : campaign.ctaConfig?.theme === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' : campaign.ctaConfig?.theme === 'orange' ? 'bg-orange-600 hover:bg-orange-700 text-white' : campaign.ctaConfig?.theme === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}
-                      >
-                        <CreditCard size={18} /> Place Order (₹{getChargesAndBenefits().grandTotal.toFixed(2)})
+                        {isProcessing ? 'Processing...' : <><CreditCard size={18} /> Proceed to Payment</>}
                       </button>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* Customer Support Info Section */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mt-6">
-                <div className="bg-gray-50 border-b border-gray-200 px-6 py-4 flex items-center gap-2">
-                  <Headset size={20} className="text-gray-500" />
-                  <h3 className="font-bold text-gray-900">Customer Support</h3>
-                </div>
-                <div className="p-6">
-                   <p className="text-sm text-gray-600 mb-4">Our support team is available from 9 AM to 9 PM to assist you with your orders.</p>
-                   <div className="flex flex-col gap-3">
-                     <a href={`tel:${brand.phone || '+918000000000'}`} className="flex items-center gap-3 text-gray-700 hover:text-indigo-600 transition">
-                       <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-100"><Phone size={16} className="text-indigo-600" /></div>
-                       <span className="font-medium text-sm">{brand.phone || '+91 8000 000 000'}</span>
-                     </a>
-                     <a href={`mailto:${brand.email || 'support@qwikmeal.com'}`} className="flex items-center gap-3 text-gray-700 hover:text-indigo-600 transition">
-                       <div className="bg-indigo-50 p-2 rounded-lg border border-indigo-100"><Mail size={16} className="text-indigo-600" /></div>
-                       <span className="font-medium text-sm text-ellipsis overflow-hidden whitespace-nowrap">{brand.email || 'support@qwikmeal.com'}</span>
-                     </a>
-                   </div>
-                </div>
-              </div>
+
             </div>
           )}
         </div>

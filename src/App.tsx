@@ -22,6 +22,8 @@ import { Layout } from './components/Layout';
 import { Landing } from './pages/Landing';
 import { About } from './pages/About';
 import { Contact } from './pages/Contact';
+import { Privacy } from './pages/Privacy';
+import { Terms } from './pages/Terms';
 import { Auth } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
 import { Tracking } from './pages/Tracking';
@@ -45,6 +47,8 @@ export default function App() {
           <Route index element={<Landing />} />
           <Route path="about" element={<About />} />
           <Route path="contact" element={<Contact />} />
+          <Route path="privacy" element={<Privacy />} />
+          <Route path="terms" element={<Terms />} />
           <Route path="auth" element={<Auth />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="dashboard/menu" element={<StoreMenu />} />
