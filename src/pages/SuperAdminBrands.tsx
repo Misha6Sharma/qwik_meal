@@ -96,7 +96,9 @@ export function SuperAdminBrands() {
            isActive: currentBrand.isActive !== undefined ? currentBrand.isActive : true,
            uploadTimestamp: now,
            lastModifiedTimestamp: now,
-           modifiedBy: user?.name || user?.email || 'System'
+           modifiedBy: user?.name || user?.email || 'System',
+           storeLocatorEnabled: currentBrand.storeLocatorEnabled,
+           storeLocatorUrl: currentBrand.storeLocatorUrl
          };
          await addBrand(newBrand);
       }
@@ -293,6 +295,35 @@ export function SuperAdminBrands() {
                     <span className="text-sm">Inactive</span>
                   </label>
                 </div>
+
+                <div className="flex items-center gap-3 mt-4">
+                  <label className="text-sm font-medium text-gray-700">Store Locator Enabled:</label>
+                  <label className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={currentBrand.storeLocatorEnabled || false}
+                      onChange={(e) => setCurrentBrand({...currentBrand, storeLocatorEnabled: e.target.checked})}
+                      className="text-green-600 focus:ring-green-500 rounded border-gray-300 h-4 w-4" 
+                    />
+                    <span className="text-sm">Yes</span>
+                  </label>
+                </div>
+
+                {currentBrand.storeLocatorEnabled && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Store Locator URL *</label>
+                    <input
+                      type="url"
+                      value={currentBrand.storeLocatorUrl || ''}
+                      onChange={(e) => setCurrentBrand({ ...currentBrand, storeLocatorUrl: e.target.value })}
+                      placeholder="https://www.brand.com/store-locator"
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2"
+                      required={currentBrand.storeLocatorEnabled}
+                      pattern="https://.*"
+                      title="Must be a valid URL starting with https://"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>

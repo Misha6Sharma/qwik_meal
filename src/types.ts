@@ -50,6 +50,8 @@ export type Brand = {
   modifiedBy?: string;
   serviceability?: ServiceabilitySettings;
   allowPickup?: boolean;
+  storeLocatorEnabled?: boolean;
+  storeLocatorUrl?: string;
 };
 
 export type CampaignPrivacy = 'PUBLIC' | 'PRIVATE' | 'CUSTOMERS';

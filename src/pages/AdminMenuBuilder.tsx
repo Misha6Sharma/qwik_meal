@@ -1217,7 +1217,7 @@ export function AdminMenuBuilder() {
                 const c = allCampaigns.find((camp) => camp.id === campaignId);
                 const b = brands.find(brand => brand.id === c?.brandId);
                 const currentSlug = c?.slug || campaignId;
-                const url = `${window.location.origin}/c/${currentSlug}`;
+                const url = `${window.location.origin}/c/${encodeURIComponent(currentSlug)}`;
                 
                 return (
                   <>
@@ -1347,7 +1347,7 @@ export function AdminMenuBuilder() {
                     <div className="grid grid-cols-3 gap-3">
                       <button
                         onClick={async () => {
-                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${campaignId}`;
+                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${encodeURIComponent(campaignId)}`;
                           const customGreeting = shareCustomerName ? `Hi ${shareCustomerName},\nWe've reserved a special offer for you from ${b?.name || 'us'}.\n\n` : '';
                           
                           let expiryText = '';
@@ -1356,7 +1356,7 @@ export function AdminMenuBuilder() {
                           }
 
                           const ctaText = c?.ctaConfig?.text || 'Order Now';
-                          const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n${linkUrl}` : `🔗 Tap below to order:\n${linkUrl}`;
+                          const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n\n${linkUrl}\n\n` : `🔗 Tap below to order:\n\n${linkUrl}\n\n`;
 
                           const text = encodeURIComponent(
 `${customGreeting}━━━━━━━━━━━━━━━
@@ -1439,7 +1439,7 @@ Powered by QwikMeal
                       </button>
                       <button
                         onClick={() => {
-                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${campaignId}`;
+                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${encodeURIComponent(campaignId)}`;
                           const subject = encodeURIComponent('New Campaign');
                           const body = encodeURIComponent(`Check out our new campaign!\n\nLink: ${linkUrl}`);
                           window.location.href = `mailto:?subject=${subject}&body=${body}`;
@@ -1451,7 +1451,7 @@ Powered by QwikMeal
                       </button>
                       <button
                         onClick={async () => {
-                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${campaignId}`;
+                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${encodeURIComponent(campaignId)}`;
                           if (navigator.share) {
                             try {
                               await navigator.share({

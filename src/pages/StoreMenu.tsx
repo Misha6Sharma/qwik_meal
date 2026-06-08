@@ -203,9 +203,50 @@ export function StoreMenu() {
     return cart.find(c => c.menuItem.id === itemId)?.quantity || 0;
   };
 
-  const cartTotal = cart.reduce((total, item) => total + (item.menuItem.offerPrice * item.quantity), 0);
-  const cartDelivery = (orderType === 'DELIVERY' && cart.length > 0) ? Math.max(...cart.map(c => c.menuItem.deliveryCharges)) : 0;
-  const finalTotal = cartTotal + cartDelivery;
+  const getProductSavings = () => {
+    let savings = 0;
+    cart.forEach(item => {
+      savings += (item.menuItem.mrp - item.menuItem.offerPrice) * item.quantity;
+    });
+    return savings;
+  };
+
+  const getChargesAndBenefits = () => {
+    const subtotal = cart.reduce((total, item) => total + (item.menuItem.offerPrice * item.quantity), 0);
+    const b = currentCampaign?.benefits || {
+      freeDelivery: false,
+      minOrderValueForFreeDelivery: 0,
+      deliveryChargeAmount: (orderType === 'DELIVERY' && cart.length > 0) ? Math.max(...cart.map(c => c.menuItem.deliveryCharges)) : 0,
+      packagingChargeAmount: 0,
+      waivePackagingCharge: false,
+      processingFeeAmount: 0,
+      waiveProcessingFee: false,
+    };
+    
+    const isFreeDelivery = b.freeDelivery && (!b.minOrderValueForFreeDelivery || subtotal >= b.minOrderValueForFreeDelivery);
+    
+    const charges = {
+      delivery: isFreeDelivery ? 0 : b.deliveryChargeAmount,
+      packaging: b.waivePackagingCharge ? 0 : b.packagingChargeAmount,
+      processing: b.waiveProcessingFee ? 0 : b.processingFeeAmount,
+    };
+    
+    const savings = {
+      product: getProductSavings(),
+      delivery: isFreeDelivery ? b.deliveryChargeAmount : 0,
+      packaging: b.waivePackagingCharge ? b.packagingChargeAmount : 0,
+      processing: b.waiveProcessingFee ? b.processingFeeAmount : 0,
+    };
+    
+    const totalSavings = savings.product + savings.delivery + savings.packaging + savings.processing;
+    const gstTotal = subtotal * 0.05;
+    const grandTotal = subtotal + gstTotal + charges.delivery + charges.packaging + charges.processing;
+    
+    return { charges, savings, totalSavings, gstTotal, grandTotal, subtotal };
+  };
+
+  const { subtotal: cartTotal, gstTotal, grandTotal: finalTotal, charges, totalSavings } = getChargesAndBenefits();
+  const cartDelivery = charges.delivery;
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -278,6 +319,8 @@ export function StoreMenu() {
           scheduledDeliveryTime: deliveryTime,
           items: orderItems,
           totalAmount: finalTotal,
+          gstAmount: gstTotal,
+          savingsAmount: totalSavings,
           status: isPending ? 'PENDING_PAYMENT' : 'PROCESSING',
           paymentStatus: isPending ? 'PENDING' : 'PAID', // Simplified for simulation
           paymentReference: txRef,
@@ -801,7 +844,7 @@ export function StoreMenu() {
                       Order Placed Successfully!
                     </div>
                     <p className="text-sm text-gray-500 leading-relaxed max-w-[250px] mx-auto">
-                       Your order for ₹{finalTotal} is confirmed. View Dashboard to track {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}.
+                       Your order for ₹{finalTotal.toFixed(2)} is confirmed. View Dashboard to track {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}.
                     </p>
                     {orderType === 'PICKUP' && (
                       <div className="mt-6 flex justify-center">
@@ -969,19 +1012,29 @@ export function StoreMenu() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between text-gray-600">
                       <span>Subtotal</span>
-                      <span className="font-medium text-gray-900">₹{cartTotal}</span>
+                      <span className="font-medium text-gray-900">₹{cartTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600">
+                      <span>GST (5%)</span>
+                      <span className="font-medium text-gray-900">₹{gstTotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-gray-600">
                       <span>Delivery Charge</span>
-                      <span className="font-medium text-gray-900">₹{cartDelivery}</span>
+                      <span className="font-medium text-gray-900">₹{cartDelivery.toFixed(2)}</span>
                     </div>
+                    {charges.packaging > 0 && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>Packaging Charge</span>
+                        <span className="font-medium text-gray-900">₹{charges.packaging.toFixed(2)}</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 
                 <div className="border-t border-gray-200 pt-2 flex justify-between items-center bg-gray-50">
                    <div className="flex flex-col">
                      <span className="font-bold text-gray-900 text-sm">Total Amount</span>
-                     <span className="font-bold text-xl text-red-600">₹{finalTotal}</span>
+                     <span className="font-bold text-xl text-red-600">₹{finalTotal.toFixed(2)}</span>
                    </div>
                    
                    {!showCheckout ? (
@@ -1086,7 +1139,7 @@ export function StoreMenu() {
               </table>
               <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-gray-200">
                 <span className="font-bold text-gray-700 tracking-wider">TOTAL PAID</span>
-                <span className="font-black text-xl text-gray-900">₹{finalTotal}</span>
+                <span className="font-black text-xl text-gray-900">₹{finalTotal.toFixed(2)}</span>
               </div>
             </div>
             
