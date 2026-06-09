@@ -178,6 +178,12 @@ export function StoreMenu() {
   ) || [];
 
   const updateQuantity = (itemId: string, delta: number) => {
+    if (!serviceabilityPassed && hasServiceabilityRequirement) {
+      alert("Please check serviceability for your delivery area before building your cart.");
+      document.getElementById('serviceability-pincode-input')?.focus();
+      return;
+    }
+
     setCart(prev => {
       const existing = prev.find(c => c.menuItem.id === itemId);
       if (!existing) {
@@ -561,6 +567,7 @@ export function StoreMenu() {
                   </div>
                   <div className="flex gap-2 w-full sm:w-auto">
                     <input 
+                      id="serviceability-pincode-input"
                       type="text" 
                       placeholder="Enter Pincode" 
                       value={deliveryPinCode}
@@ -632,26 +639,17 @@ export function StoreMenu() {
                 </div>
               )}
 
-              {activeBrand?.serviceability?.enabled && (activeBrand.serviceability.coverageType === 'PINCODES' || activeBrand.serviceability.coverageType === 'CITIES') && (!deliveryPinCode || deliveryPinCode.length < 6) ? (
-                <div className="bg-white border-2 border-indigo-100 border-dashed rounded-3xl p-10 text-center flex flex-col items-center justify-center">
-                   <div className="bg-indigo-50 w-20 h-20 rounded-full flex items-center justify-center mb-4">
-                     <MapPin size={32} className="text-indigo-600" />
-                   </div>
-                   <h3 className="text-xl font-bold text-gray-900 mb-2">Check Serviceability to Order</h3>
-                   <p className="text-gray-500 mb-6 max-w-md">Please enter your 6-digit delivery pincode in the top banner to see if we deliver to your location before exploring the menu and building your cart.</p>
-                </div>
-              ) : (
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 relative ${isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
-                  {!isServiceable && !!deliveryPinCode && (
-                    <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-20 flex items-start justify-center pt-20 rounded-3xl">
-                      <div className="bg-white shadow-xl rounded-2xl p-6 text-center max-w-sm border border-red-100">
-                        <MapPin size={32} className="text-red-500 mx-auto mb-3" />
-                        <h4 className="font-bold text-gray-900 text-lg mb-2">Not Serviceable</h4>
-                        <p className="text-sm text-gray-600">You cannot build a cart because we do not deliver to this location.</p>
-                      </div>
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 relative ${isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
+                {!isServiceable && !!deliveryPinCode && (
+                  <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-20 flex items-start justify-center pt-20 rounded-3xl">
+                    <div className="bg-white shadow-xl rounded-2xl p-6 text-center max-w-sm border border-red-100">
+                      <MapPin size={32} className="text-red-500 mx-auto mb-3" />
+                      <h4 className="font-bold text-gray-900 text-lg mb-2">Not Serviceable</h4>
+                      <p className="text-sm text-gray-600">You cannot build a cart because we do not deliver to this location.</p>
                     </div>
-                  )}
-                  {activeMenuItems.length > 0 ? activeMenuItems.map((item) => (
+                  </div>
+                )}
+                {activeMenuItems.length > 0 ? activeMenuItems.map((item) => (
                   <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition group">
                     <div className="h-48 overflow-hidden relative">
                       <img 
@@ -691,13 +689,7 @@ export function StoreMenu() {
                         
                         <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-1 border border-gray-200">
                           <button 
-                            onClick={() => {
-                              if (!isServiceable) {
-                                alert('Please enter a valid delivery pincode to check serviceability before adding items.');
-                                return;
-                              }
-                              updateQuantity(item.id, -1);
-                            }}
+                            onClick={() => updateQuantity(item.id, -1)}
                             className="p-1 rounded-md text-gray-500 hover:bg-white hover:text-red-600 transition shadow-sm cursor-pointer disabled:opacity-50"
                             disabled={getQuantity(item.id) === 0}
                           >
@@ -707,13 +699,7 @@ export function StoreMenu() {
                             {getQuantity(item.id)}
                           </span>
                           <button 
-                            onClick={() => {
-                              if (!isServiceable || (!deliveryPinCode && activeBrand?.serviceability?.enabled && activeBrand.serviceability.coverageType === 'PINCODES')) {
-                                alert('Please enter a serviceable delivery pincode before adding items.');
-                                return;
-                              }
-                              updateQuantity(item.id, 1);
-                            }}
+                            onClick={() => updateQuantity(item.id, 1)}
                             className="p-1 rounded-md text-gray-500 hover:bg-white hover:text-red-600 transition shadow-sm cursor-pointer disabled:opacity-50"
                             disabled={!isServiceable && !!deliveryPinCode}
                           >
@@ -731,7 +717,6 @@ export function StoreMenu() {
                   </div>
                 )}
               </div>
-              )}
 
               {/* Event Catering Promotional Banner */}
               <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-8 mt-12 shadow-sm text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
@@ -753,7 +738,7 @@ export function StoreMenu() {
         </div>
 
         {/* Cart/Checkout Sidebar */}
-        {serviceabilityPassed && (
+        {true && (
         <div className="w-full lg:w-[400px] shrink-0">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm lg:sticky lg:top-24 overflow-hidden flex flex-col h-full lg:max-h-[calc(100dvh-8rem)]">
             <div className="bg-gray-900 p-4 text-white flex items-center justify-between relative">
@@ -1039,7 +1024,14 @@ export function StoreMenu() {
                    
                    {!showCheckout ? (
                     <button 
-                      onClick={() => setShowCheckout(true)}
+                      onClick={() => {
+                        if (!serviceabilityPassed && hasServiceabilityRequirement) {
+                          alert("Please check serviceability for your delivery area before placing an order.");
+                          document.getElementById('serviceability-pincode-input')?.focus();
+                          return;
+                        }
+                        setShowCheckout(true);
+                      }}
                       disabled={isCampaignExpired}
                       className={`font-bold py-2 px-6 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm ${isCampaignExpired ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900 cursor-pointer'}`}
                     >

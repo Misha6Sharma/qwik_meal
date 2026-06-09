@@ -52,6 +52,10 @@ export type Brand = {
   allowPickup?: boolean;
   storeLocatorEnabled?: boolean;
   storeLocatorUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  flyerBackgroundStyle?: 'SOLID' | 'GRADIENT' | 'PATTERN';
+  flyerFooterText?: string;
 };
 
 export type CampaignPrivacy = 'PUBLIC' | 'PRIVATE' | 'CUSTOMERS';
@@ -87,7 +91,6 @@ export type Campaign = {
   id: string;
   brandId: string;
   name: string;
-  slug?: string;
   isActive: boolean;
   sharePrivacy?: CampaignPrivacy;
   startDate?: string;
@@ -114,6 +117,8 @@ export type Campaign = {
     text: string;
     theme: string;
   };
+  flyerPngUrl?: string;
+  flyerPdfUrl?: string;
 };
 
 export type ItemVariant = {

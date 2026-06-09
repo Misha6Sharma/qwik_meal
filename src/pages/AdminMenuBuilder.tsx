@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Image as ImageIcon, Save, Trash2, CheckCircle2, Edit2, X, Upload, BarChart3, Users, DollarSign, ShoppingBag, Eye, EyeOff, Share2, Copy, MessageSquare, Mail, Link2, Download, MapPin, Calendar, Clock } from 'lucide-react';
 import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, ServiceabilitySettings, FulfillmentSettings } from '../types';
 import { getBrands } from '../brands';
-import { updateCampaignCTA, updateCampaignSocialProof, getCampaigns, updateCampaignName, updateCampaignSlug, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignTimeline, updateCampaignFulfillment } from '../campaigns';
+import { updateCampaignCTA, updateCampaignSocialProof, getCampaigns, updateCampaignName, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignTimeline, updateCampaignFulfillment } from '../campaigns';
 import { authService } from '../auth';
 import { dbService } from '../db';
 import { storage } from '../firebase';
@@ -10,7 +10,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { ExportOrdersModal } from '../components/ExportOrdersModal';
 import { ImageUploadCropper } from '../components/ImageUploadCropper';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
-import { toJpeg } from 'html-to-image';
+import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 
 import imgFallback from '../assets/images/img_1543339308.jpg';
 
@@ -82,9 +83,9 @@ export function AdminMenuBuilder() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [shareCustomerName, setShareCustomerName] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showFlyerModal, setShowFlyerModal] = useState(false);
   const [waIncludeQR, setWaIncludeQR] = useState(true);
   const [waIncludeBanner, setWaIncludeBanner] = useState(true);
-  const [waUseShortUrl, setWaUseShortUrl] = useState(true);
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
   const [showTimelineModal, setShowTimelineModal] = useState(false);
   const [timelineForm, setTimelineForm] = useState({ startDate: '', endDate: '' });
@@ -245,6 +246,57 @@ export function AdminMenuBuilder() {
   });
 
   const proposedSaving = (newItem.mrp || 0) - (newItem.offerPrice || 0);
+
+  // Auto-generate flyers
+  useEffect(() => {
+    let active = true;
+    const generateFlyers = async () => {
+      const c = allCampaigns.find((camp) => camp.id === campaignId);
+      if (c && (!c.flyerPngUrl || !c.flyerPdfUrl)) {
+        try {
+          // Wait for DOM and assets
+          await new Promise(r => setTimeout(r, 1500)); 
+          const flyerElement = document.getElementById('whatsapp-flyer-render');
+          if (!flyerElement) return;
+
+          const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff', skipAutoScale: true });
+          const fetchRes = await fetch(dataUrl);
+          const blob = await fetchRes.blob();
+          
+          if (blob.size < 10000) {
+            console.error("Generated flyer is too small (blank canvas suspected)", blob.size);
+            return;
+          }
+
+          // Generate PDF
+          const { jsPDF } = await import('jspdf');
+          const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [800, 1131] });
+          pdf.addImage(dataUrl, 'PNG', 0, 0, 800, 1131);
+          const pdfBlob = pdf.output('blob');
+
+          // Upload PNG
+          const pngRef = ref(storage, `flyers/${c.id}_${Date.now()}.png`);
+          await uploadBytes(pngRef, blob);
+          const pngUrl = await getDownloadURL(pngRef);
+
+          // Upload PDF
+          const pdfRef = ref(storage, `flyers/${c.id}_${Date.now()}.pdf`);
+          await uploadBytes(pdfRef, pdfBlob);
+          const pdfUrl = await getDownloadURL(pdfRef);
+
+          if (active) {
+            const updatedCampaign = { ...c, flyerPngUrl: pngUrl, flyerPdfUrl: pdfUrl };
+            await dbService.updateCampaign(updatedCampaign);
+            setAllCampaigns(prev => prev.map(p => p.id === c.id ? updatedCampaign : p));
+          }
+        } catch (err) {
+          console.error("Flyer auto-generation failed", err);
+        }
+      }
+    };
+    generateFlyers();
+    return () => { active = false; };
+  }, [campaignId, allCampaigns, items]);
 
   const logCampaignAction = async (action: string, details?: string) => {
     if (!campaignId || !user) return;
@@ -500,6 +552,14 @@ export function AdminMenuBuilder() {
             title="Share Campaign Link"
           >
             Share Options
+          </button>
+          <button
+            onClick={() => setShowFlyerModal(true)}
+            className="flex items-center gap-2 bg-purple-50 text-purple-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-purple-100 transition whitespace-nowrap border border-purple-100"
+            title="Campaign Flyer generator"
+          >
+            <ImageIcon size={16} />
+            Flyer
           </button>
           <button
             onClick={() => {
@@ -1216,8 +1276,7 @@ export function AdminMenuBuilder() {
               {(() => {
                 const c = allCampaigns.find((camp) => camp.id === campaignId);
                 const b = brands.find(brand => brand.id === c?.brandId);
-                const currentSlug = c?.slug || campaignId;
-                const url = `${window.location.origin}/c/${encodeURIComponent(currentSlug)}`;
+                const url = `${window.location.origin}/c/${campaignId}`;
                 
                 return (
                   <>
@@ -1227,8 +1286,8 @@ export function AdminMenuBuilder() {
                           onClick={async () => {
                               const flyerElement = document.getElementById('whatsapp-flyer-render');
                               if (flyerElement) {
-                                await new Promise(r => setTimeout(r, 150));
-                                const dataUrl = await toJpeg(flyerElement, { pixelRatio: 2, quality: 0.85, skipAutoScale: true, backgroundColor: '#ffffff' });
+                                await new Promise(r => setTimeout(r, 600));
+                                const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff' });
 
                                 const fetchRes = await fetch(dataUrl);
                                 const blob = await fetchRes.blob();
@@ -1237,7 +1296,7 @@ export function AdminMenuBuilder() {
                                   return;
                                 }
                                 const link = document.createElement('a');
-                                link.download = `Flyer_${c?.slug || campaignId}.jpg`;
+                                link.download = `Flyer_${campaignId}.png`;
                                 link.href = dataUrl;
                                 link.click();
                               }
@@ -1278,25 +1337,6 @@ export function AdminMenuBuilder() {
                     </div>
 
                     <div className="mb-6">
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Short URL Slug</label>
-                      <div className="flex gap-2 items-center">
-                        <span className="text-gray-500 text-sm hidden sm:inline">{window.location.origin}/c/</span>
-                        <span className="text-gray-500 text-sm sm:hidden">/c/</span>
-                        <input
-                          type="text"
-                          value={c?.slug || ''}
-                          placeholder="e.g. pizza-party"
-                          onChange={async (e) => {
-                             const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-                             const updated = await updateCampaignSlug(campaignId, val);
-                             setAllCampaigns(updated);
-                          }}
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-red-500 focus:border-red-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mb-6">
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Campaign Link</label>
                       <div className="flex gap-2">
                         <div className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden text-ellipsis whitespace-nowrap text-sm text-gray-600">
@@ -1311,6 +1351,32 @@ export function AdminMenuBuilder() {
                           className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 transition flex items-center gap-2"
                         >
                           <Copy size={18} />
+                        </button>
+                      </div>
+                      <div className="mt-4 flex flex-col items-center justify-center p-6 bg-gray-50 border border-gray-200 rounded-lg">
+                        <div id={`qr-container-${campaignId}`} className="bg-white p-2 rounded">
+                          <QRCodeCanvas value={url} size={150} level="H" />
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const qrElement = document.getElementById(`qr-container-${campaignId}`);
+                            if (qrElement) {
+                              try {
+                                const { toPng } = await import('html-to-image');
+                                const dataUrl = await toPng(qrElement, { backgroundColor: '#ffffff', pixelRatio: 2 });
+                                const link = document.createElement('a');
+                                link.download = `QR_${campaignId}.png`;
+                                link.href = dataUrl;
+                                link.click();
+                              } catch (err) {
+                                console.error('Failed to generate QR image', err);
+                                alert('Failed to generate QR image');
+                              }
+                            }
+                          }}
+                          className="mt-6 px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 flex items-center gap-2 transition shadow-sm w-full justify-center"
+                        >
+                          <Download size={16} /> Download QR Code Image
                         </button>
                       </div>
                     </div>
@@ -1337,17 +1403,13 @@ export function AdminMenuBuilder() {
                           <input type="checkbox" checked={waIncludeQR} onChange={e => setWaIncludeQR(e.target.checked)} className="rounded text-green-600 focus:ring-green-500" />
                           Include QR Code
                         </label>
-                        <label className="flex items-center gap-2 text-sm text-gray-700">
-                          <input type="checkbox" checked={waUseShortUrl} onChange={e => setWaUseShortUrl(e.target.checked)} className="rounded text-green-600 focus:ring-green-500" />
-                          Use Short URL
-                        </label>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-3">
                       <button
                         onClick={async () => {
-                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${encodeURIComponent(campaignId)}`;
+                          const linkUrl = url;
                           const customGreeting = shareCustomerName ? `Hi ${shareCustomerName},\nWe've reserved a special offer for you from ${b?.name || 'us'}.\n\n` : '';
                           
                           let expiryText = '';
@@ -1356,7 +1418,7 @@ export function AdminMenuBuilder() {
                           }
 
                           const ctaText = c?.ctaConfig?.text || 'Order Now';
-                          const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n\n${linkUrl}\n\n` : `🔗 Tap below to order:\n\n${linkUrl}\n\n`;
+                          const ctaSection = c?.ctaConfig?.enabled !== false ? `🛒 *[${ctaText}]*\n${linkUrl}` : `🔗 Tap below to order:\n${linkUrl}`;
 
                           const text = encodeURIComponent(
 `${customGreeting}━━━━━━━━━━━━━━━
@@ -1384,8 +1446,8 @@ Powered by QwikMeal
                             try {
                               const flyerElement = document.getElementById('whatsapp-flyer-render');
                               if (flyerElement) {
-                                await new Promise(resolve => setTimeout(resolve, 300));
-                                const dataUrl = await toJpeg(flyerElement, { pixelRatio: 2, quality: 0.85, skipAutoScale: true, backgroundColor: '#ffffff' });
+                                await new Promise(resolve => setTimeout(resolve, 600));
+                                const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff' });
 
                                 const fetchRes = await fetch(dataUrl);
                                 const blob = await fetchRes.blob();
@@ -1396,7 +1458,7 @@ Powered by QwikMeal
                                   return;
                                 }
                                 
-                                const file = new File([blob], `Campaign_${c?.slug || campaignId}.jpg`, { type: 'image/jpeg' });
+                                const file = new File([blob], `Campaign_${campaignId}.png`, { type: 'image/png' });
                                 const unencodedText = decodeURIComponent(text);
                                 const baseShareText = unencodedText;
 
@@ -1439,7 +1501,7 @@ Powered by QwikMeal
                       </button>
                       <button
                         onClick={() => {
-                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${encodeURIComponent(campaignId)}`;
+                          const linkUrl = url;
                           const subject = encodeURIComponent('New Campaign');
                           const body = encodeURIComponent(`Check out our new campaign!\n\nLink: ${linkUrl}`);
                           window.location.href = `mailto:?subject=${subject}&body=${body}`;
@@ -1451,7 +1513,7 @@ Powered by QwikMeal
                       </button>
                       <button
                         onClick={async () => {
-                          const linkUrl = waUseShortUrl ? url : `${window.location.origin}/c/${encodeURIComponent(campaignId)}`;
+                          const linkUrl = url;
                           if (navigator.share) {
                             try {
                               await navigator.share({
@@ -1472,39 +1534,310 @@ Powered by QwikMeal
                         <span className="text-xs font-semibold text-gray-600 group-hover:text-purple-600 transition-colors">{navigator.share ? 'More' : 'SMS'}</span>
                       </button>
                     </div>
-
-                    {/* Hidden Flyer for Rendering */}
-                    <div id="whatsapp-flyer-render" className="fixed bg-white w-[600px] border border-gray-200 p-8 font-sans" style={{ left: '-9999px', top: '-9999px', pointerEvents: 'none' }}>
-                      <div className="text-center mb-6">
-                        <h1 className="text-3xl font-black text-gray-900 mb-2">{c?.name || 'Special Offer'}</h1>
-                        <h2 className="text-xl font-bold text-red-600">{b?.name || 'QwikMeal Partner'}</h2>
-                      </div>
-                      
-                      {waIncludeBanner && activeItems.length > 0 && (
-                        <div className="mb-8 rounded-xl overflow-hidden shadow-lg border border-gray-100 bg-gray-50 flex items-center justify-center p-4">
-                           <img 
-                             src={activeItems[0].mealImage || imgFallback} 
-                             alt="Banner" 
-                             className="max-w-full h-auto max-h-[400px] object-contain rounded-lg"
-                             referrerPolicy="no-referrer"
-                             crossOrigin="anonymous"
-                           />
-                        </div>
-                      )}
-                      
-                      {waIncludeQR && (
-                        <div className="flex flex-col items-center justify-center bg-gray-50 border border-gray-200 rounded-xl p-8 mb-6">
-                          <QRCodeCanvas value={url} size={200} level="H" />
-                          <p className="mt-4 font-bold text-gray-600 tracking-wider">SCAN TO ORDER NOW</p>
-                        </div>
-                      )}
-                      <div className="text-center text-gray-400 font-medium text-sm pt-4 border-t border-gray-200 mb-2">
-                        Powered by QwikMeal
-                      </div>
-                    </div>
                   </>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flyer Modal */}
+      {showFlyerModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+              <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                <ImageIcon size={20} className="text-purple-600" />
+                Campaign Flyer Preview
+              </h3>
+              <button 
+                onClick={() => setShowFlyerModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex flex-col items-center bg-gray-100">
+              <p className="text-sm text-gray-500 mb-6 text-center">
+                This flyer features dynamic brand colors and layout. Use buttons below to save or share.
+              </p>
+              
+              {(() => {
+                const c = allCampaigns.find((camp) => camp.id === campaignId);
+                const b = brands.find(brand => brand.id === c?.brandId);
+                const url = `${window.location.origin}/c/${campaignId}`;
+                const activeItems = (c?.id && items) ? items.filter(i => i.campaignId === c.id && i.isActive !== false) : [];
+
+                if (c?.flyerPngUrl) {
+                  return (
+                    <div className="relative transform origin-top w-[800px] shadow-lg flex justify-center" style={{ transform: 'scale(0.55)', marginBottom: '-400px' }}>
+                      <img src={c.flyerPngUrl} alt="Flyer Preview" className="w-[800px] h-[1131px] object-cover rounded shadow-lg" crossOrigin="anonymous" />
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="relative transform origin-top w-[800px] shadow-lg" style={{ transform: 'scale(0.55)', marginBottom: '-400px' }}>
+                    <div className="w-[800px] h-[1131px] font-sans flex flex-col text-left" 
+                         style={{ 
+                            backgroundColor: b?.flyerBackgroundStyle === 'GRADIENT' ? '#f3f4f6' : (b?.flyerBackgroundStyle === 'PATTERN' ? '#f8fafc' : '#ffffff'),
+                            backgroundImage: b?.flyerBackgroundStyle === 'GRADIENT' ? `linear-gradient(to bottom right, ${b?.primaryColor || '#dc2626'}15, ${b?.secondaryColor || '#ffffff'})` : 'none'
+                          }}>
+                      <div className="flex-1 p-12 flex flex-col items-center justify-start text-center">
+                        {/* Brand Logo & Name */}
+                        {b?.logo && (
+                          <img src={b.logo} alt="Brand Logo" className="h-24 w-auto object-contain mb-4" crossOrigin="anonymous" />
+                        )}
+                        <h2 className="text-3xl font-bold tracking-tight mb-2" style={{ color: b?.primaryColor || '#111827' }}>
+                          {b?.name || 'QwikMeal Partner'}
+                        </h2>
+                        
+                        <h1 className="text-5xl font-black text-gray-900 mb-8 mt-2 leading-tight">
+                          {c?.name || 'Special Offer'}
+                        </h1>
+                        
+                        {/* Banner properly constrained */}
+                        {activeItems.length > 0 && (
+                          <div className="w-full h-[300px] flex justify-center mb-10 shadow-2xl rounded-2xl overflow-hidden border-4" style={{ borderColor: b?.primaryColor || '#f3f4f6' }}>
+                             <img 
+                               src={activeItems[0].mealImage || imgFallback} 
+                               alt="Banner" 
+                               className="w-full h-full object-cover"
+                               referrerPolicy="no-referrer"
+                               crossOrigin="anonymous"
+                             />
+                          </div>
+                        )}
+                        
+                        <div className="flex-1 w-full flex flex-col items-center justify-center bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                          <h3 className="text-2xl font-bold text-gray-800 mb-6 uppercase tracking-widest text-center">Place Your Order</h3>
+                          
+                          <div className="flex items-center justify-center gap-12 w-full">
+                            <div className="flex flex-col items-center flex-1">
+                              <div className="bg-white p-4 rounded-2xl shadow-sm border-2 border-dashed border-gray-300 inline-block">
+                                <QRCodeCanvas value={url} size={280} level="H" />
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <p className="mt-10 text-xl text-gray-600 font-medium text-center max-w-lg">
+                            Scan the QR Code to browse menu and place your order.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Footer */}
+                      <div className="w-full py-6 text-center" style={{ backgroundColor: b?.primaryColor || '#1f2937' }}>
+                        <p className="text-white text-lg font-semibold tracking-wider opacity-90">
+                          {b?.flyerFooterText || 'Powered by QwikMeal'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            
+            <div className="p-4 bg-white border-t border-gray-100 flex flex-wrap justify-end gap-3 shrink-0">
+              <button
+                onClick={async () => {
+                   const flyerElement = document.getElementById('whatsapp-flyer-render');
+                   if (!flyerElement) return;
+                   try {
+                     await new Promise(r => setTimeout(r, 600));
+                     const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff', skipAutoScale: true });
+                     const fetchRes = await fetch(dataUrl);
+                     const blob = await fetchRes.blob();
+                     if (blob.size < 10000) return alert("Flyer generation failed. Content is blank.");
+                     
+                     const { jsPDF } = await import('jspdf');
+                     const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [800, 1131] });
+                     pdf.addImage(dataUrl, 'PNG', 0, 0, 800, 1131);
+                     const pdfBlob = pdf.output('blob');
+           
+                     const pngRef = ref(storage, `flyers/${campaignId}_${Date.now()}.png`);
+                     await uploadBytes(pngRef, blob);
+                     const pngUrl = await getDownloadURL(pngRef);
+           
+                     const pdfRef = ref(storage, `flyers/${campaignId}_${Date.now()}.pdf`);
+                     await uploadBytes(pdfRef, pdfBlob);
+                     const pdfUrl = await getDownloadURL(pdfRef);
+           
+                     const c = allCampaigns.find((camp) => camp.id === campaignId);
+                     if (c) {
+                       const updatedCampaign = { ...c, flyerPngUrl: pngUrl, flyerPdfUrl: pdfUrl };
+                       await dbService.updateCampaign(updatedCampaign);
+                       setAllCampaigns(prev => prev.map(p => p.id === c.id ? updatedCampaign : p));
+                       alert("Flyer regenerated and saved permanently.");
+                     }
+                   } catch (e) {
+                     alert("Failed to regenerate flyer.");
+                   }
+                }}
+                className="px-4 py-2 bg-gray-100 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200 flex items-center gap-2"
+                title="Save latest design to cloud"
+              >
+                Regenerate Flyer
+              </button>
+
+              <button
+                onClick={async () => {
+                  let urlToDownload = '';
+                  const c = allCampaigns.find((camp) => camp.id === campaignId);
+                  
+                  if (c?.flyerPngUrl) {
+                    try {
+                      const response = await fetch(c.flyerPngUrl);
+                      const blob = await response.blob();
+                      urlToDownload = URL.createObjectURL(blob);
+                    } catch (e) {
+                      urlToDownload = c.flyerPngUrl;
+                    }
+                  } else {
+                    const flyerElement = document.getElementById('whatsapp-flyer-render');
+                    if (flyerElement) {
+                      await new Promise(r => setTimeout(r, 600));
+                      const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff', skipAutoScale: true });
+  
+                      const fetchRes = await fetch(dataUrl);
+                      const blob = await fetchRes.blob();
+                      if (blob.size < 10000) {
+                        alert('Failed to generate flyer image');
+                        return;
+                      }
+                      urlToDownload = URL.createObjectURL(blob);
+                    }
+                  }
+                  
+                  if (urlToDownload) {
+                    const link = document.createElement('a');
+                    link.href = urlToDownload;
+                    link.download = `Flyer_${campaignId}.png`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(urlToDownload), 1000);
+                  }
+                }}
+                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 flex items-center gap-2"
+              >
+                <Download size={16} /> Download PNG
+              </button>
+              
+              <button
+                onClick={async () => {
+                  let urlToDownload = '';
+                  const c = allCampaigns.find((camp) => camp.id === campaignId);
+                  
+                  if (c?.flyerPdfUrl) {
+                    try {
+                      const response = await fetch(c.flyerPdfUrl);
+                      const blob = await response.blob();
+                      urlToDownload = URL.createObjectURL(blob);
+                    } catch (e) {
+                      urlToDownload = c.flyerPdfUrl;
+                    }
+                  } else {
+                    const flyerElement = document.getElementById('whatsapp-flyer-render');
+                    if (flyerElement) {
+                      await new Promise(r => setTimeout(r, 600));
+                      const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff', skipAutoScale: true });
+                      const fetchRes = await fetch(dataUrl);
+                      const blob = await fetchRes.blob();
+                      if (blob.size < 10000) {
+                        alert('Failed to generate flyer PDF content');
+                        return;
+                      }
+                      
+                      const pdf = new jsPDF({
+                        orientation: 'portrait',
+                        unit: 'px',
+                        format: [800, 1131]
+                      });
+                      
+                      pdf.addImage(dataUrl, 'PNG', 0, 0, 800, 1131);
+                      const pdfBlob = pdf.output('blob');
+                      urlToDownload = URL.createObjectURL(pdfBlob);
+                    }
+                  }
+                  
+                  if (urlToDownload) {
+                    const link = document.createElement('a');
+                    link.href = urlToDownload;
+                    link.download = `Flyer_${campaignId}.pdf`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(urlToDownload), 1000);
+                  }
+                }}
+                className="px-4 py-2 bg-red-600 border border-transparent text-white rounded-lg text-sm font-semibold hover:bg-red-700 flex items-center gap-2"
+              >
+                <Download size={16} /> Download PDF
+              </button>
+
+              <button
+                onClick={async () => {
+                  let fileBlob: Blob | null = null;
+                  const c = allCampaigns.find((camp) => camp.id === campaignId);
+
+                  if (c?.flyerPngUrl) {
+                    try {
+                      const response = await fetch(c.flyerPngUrl);
+                      fileBlob = await response.blob();
+                    } catch (e) {
+                      console.error("CORS fetch failed, falling back to local generation");
+                    }
+                  } 
+                  
+                  if (!fileBlob) {
+                    const flyerElement = document.getElementById('whatsapp-flyer-render');
+                    if (flyerElement) {
+                      await new Promise(r => setTimeout(r, 600));
+                      const dataUrl = await toPng(flyerElement, { pixelRatio: 2, backgroundColor: '#ffffff', skipAutoScale: true });
+
+                      const fetchRes = await fetch(dataUrl);
+                      fileBlob = await fetchRes.blob();
+                      if (!fileBlob || fileBlob.size < 10000) {
+                        alert('Failed to generate flyer image content');
+                        return;
+                      }
+                    }
+                  }
+
+                  if (fileBlob) {
+                    const file = new File([fileBlob], `Flyer_${campaignId}.png`, { type: 'image/png' });
+                    if (navigator.share) {
+                      try {
+                        await navigator.share({
+                          title: 'Campaign Flyer',
+                          text: `Check out this special offer!`,
+                          files: [file]
+                        });
+                      } catch (err) {
+                        console.error('Share failed:', err);
+                      }
+                    } else {
+                        // fallback to download if share is not available
+                        const objectUrl = URL.createObjectURL(fileBlob);
+                        const link = document.createElement('a');
+                        link.download = file.name;
+                        link.href = objectUrl;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+                        alert('Native sharing not supported - downloading instead.');
+                    }
+                  }
+                }}
+                className="px-4 py-2 bg-purple-600 border border-transparent text-white rounded-lg text-sm font-semibold hover:bg-purple-700 flex items-center gap-2"
+              >
+                <Share2 size={16} /> Share Flyer
+              </button>
             </div>
           </div>
         </div>
@@ -1887,6 +2220,74 @@ Powered by QwikMeal
           </div>
         </div>
       )}
+
+      {/* Permanent hidden flyer for generation */}
+      {(() => {
+        const c = allCampaigns.find((camp) => camp.id === campaignId);
+        if (!c) return null;
+        const b = brands.find(brand => brand.id === c.brandId);
+        const url = `${window.location.origin}/c/${campaignId}`;
+        const activeItems = (c.id && items) ? items.filter(i => i.campaignId === c.id && i.isActive !== false) : [];
+        
+        return (
+          <div id="whatsapp-flyer-render" className="fixed w-[800px] h-[1131px] font-sans flex flex-col text-left overflow-hidden" 
+               style={{ 
+                  top: 0, left: 0, pointerEvents: 'none', zIndex: -9999, opacity: 1,
+                  backgroundColor: b?.flyerBackgroundStyle === 'GRADIENT' ? '#f3f4f6' : (b?.flyerBackgroundStyle === 'PATTERN' ? '#f8fafc' : '#ffffff'),
+                  backgroundImage: b?.flyerBackgroundStyle === 'GRADIENT' ? `linear-gradient(to bottom right, ${b?.primaryColor || '#dc2626'}15, ${b?.secondaryColor || '#ffffff'})` : 'none'
+                }}>
+            <div className="flex-1 p-12 flex flex-col items-center justify-start text-center">
+              {/* Brand Logo & Name */}
+              {b?.logo && (
+                <img src={b.logo} alt="Brand Logo" className="h-24 w-auto object-contain mb-4" crossOrigin="anonymous" />
+              )}
+              <h2 className="text-3xl font-bold tracking-tight mb-2" style={{ color: b?.primaryColor || '#111827' }}>
+                {b?.name || 'QwikMeal Partner'}
+              </h2>
+              
+              <h1 className="text-5xl font-black text-gray-900 mb-8 mt-2 leading-tight">
+                {c?.name || 'Special Offer'}
+              </h1>
+              
+              {/* Banner properly constrained */}
+              {activeItems.length > 0 && (
+                <div className="w-full h-[300px] flex justify-center mb-10 shadow-2xl rounded-2xl overflow-hidden border-4" style={{ borderColor: b?.primaryColor || '#f3f4f6' }}>
+                   <img 
+                     src={activeItems[0].mealImage || imgFallback} 
+                     alt="Banner" 
+                     className="w-full h-full object-cover"
+                     referrerPolicy="no-referrer"
+                     crossOrigin="anonymous"
+                   />
+                </div>
+              )}
+              
+              <div className="flex-1 w-full flex flex-col items-center justify-center bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                <h3 className="text-2xl font-bold text-gray-800 mb-6 uppercase tracking-widest text-center">Place Your Order</h3>
+                
+                <div className="flex items-center justify-center gap-12 w-full">
+                  <div className="flex flex-col items-center flex-1">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border-2 border-dashed border-gray-300 inline-block">
+                      <QRCodeCanvas value={url} size={280} level="H" />
+                    </div>
+                  </div>
+                </div>
+                
+                <p className="mt-10 text-xl text-gray-600 font-medium text-center max-w-lg">
+                  Scan the QR Code to browse menu and place your order.
+                </p>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="w-full py-6 text-center" style={{ backgroundColor: b?.primaryColor || '#1f2937' }}>
+              <p className="text-white text-lg font-semibold tracking-wider opacity-90">
+                {b?.flyerFooterText || 'Powered by QwikMeal'}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

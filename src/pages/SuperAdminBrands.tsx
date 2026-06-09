@@ -324,6 +324,51 @@ export function SuperAdminBrands() {
                     />
                   </div>
                 )}
+                
+                <h4 className="font-semibold text-md text-gray-800 mt-6 mb-3 border-b pb-2">Flyer Settings</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Primary Color</label>
+                    <input
+                      type="color"
+                      value={currentBrand.primaryColor || '#dc2626'}
+                      onChange={(e) => setCurrentBrand({ ...currentBrand, primaryColor: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg h-10 p-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Secondary Color</label>
+                    <input
+                      type="color"
+                      value={currentBrand.secondaryColor || '#ffffff'}
+                      onChange={(e) => setCurrentBrand({ ...currentBrand, secondaryColor: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg h-10 p-1"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Background Style</label>
+                  <select
+                    value={currentBrand.flyerBackgroundStyle || 'SOLID'}
+                    onChange={(e) => setCurrentBrand({ ...currentBrand, flyerBackgroundStyle: e.target.value as 'SOLID' | 'GRADIENT' | 'PATTERN' })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2"
+                  >
+                    <option value="SOLID">Solid</option>
+                    <option value="GRADIENT">Gradient</option>
+                    <option value="PATTERN">Pattern</option>
+                  </select>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Footer Text</label>
+                  <input
+                    type="text"
+                    value={currentBrand.flyerFooterText || 'Powered by QwikMeal'}
+                    onChange={(e) => setCurrentBrand({ ...currentBrand, flyerFooterText: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2"
+                  />
+                </div>
               </div>
 
               <div>

@@ -54,11 +54,9 @@ export function CampaignView() {
     requirements: ''
   });
 
-  const [deliveryPinCode, setDeliveryPinCode] = useState(() => localStorage.getItem('qwikmeal_campaign_pincode') || '');
+  const [dietaryFilter, setDietaryFilter] = useState<'ALL' | 'VEG' | 'NON_VEG'>('ALL');
 
-  useEffect(() => {
-    localStorage.setItem('qwikmeal_campaign_pincode', deliveryPinCode);
-  }, [deliveryPinCode]);
+  const [deliveryPinCode, setDeliveryPinCode] = useState('');
   
   useEffect(() => {
     const checkPendingPayment = async () => {
@@ -219,7 +217,7 @@ export function CampaignView() {
     const fetchCampaignData = async () => {
       try {
         const allCampaigns = await getCampaigns();
-        const foundCampaign = allCampaigns.find(c => c.id === id || c.slug === id);
+        const foundCampaign = allCampaigns.find(c => c.id === id || (c as any).slug === id);
         if (!foundCampaign || !foundCampaign.isActive) {
           if (active) setLoading(false);
           return;
@@ -286,6 +284,12 @@ export function CampaignView() {
   }, [id]);
 
   const updateQuantity = (cartKey: string, delta: number) => {
+    if (!serviceabilityPassed && hasServiceabilityRequirement) {
+      alert("Please check serviceability for your delivery area before building your cart.");
+      document.getElementById('serviceability-pincode-input')?.focus();
+      return;
+    }
+
     setCart(prev => {
       const current = prev[cartKey] || 0;
       const next = current + delta;
@@ -374,6 +378,11 @@ export function CampaignView() {
   };
 
   const proceedToDelivery = () => {
+    if (!serviceabilityPassed && hasServiceabilityRequirement) {
+      alert("Please check serviceability for your delivery area before placing an order.");
+      document.getElementById('serviceability-pincode-input')?.focus();
+      return;
+    }
     setCheckoutStep('DELIVERY');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -836,98 +845,99 @@ export function CampaignView() {
               </div>
             ) : (
               <div>
-                {hasServiceabilityRequirement && (
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-4 mb-8 text-sm sm:text-base border-b border-gray-100 pb-4 justify-center sm:justify-start">
-                    <span className={serviceabilityPassed ? 'font-bold text-green-600 flex items-center gap-1' : 'font-bold text-gray-900 flex items-center gap-1'}>
-                      Step 1: Check Serviceability {serviceabilityPassed && <span className="text-green-600 shadow-sm rounded-full bg-white scale-150">✓</span>}
-                    </span>
-                    <span className="text-gray-300 hidden sm:inline">|</span>
-                    <span className={!serviceabilityPassed ? 'text-gray-400 flex items-center gap-1' : 'font-bold text-gray-900 flex items-center gap-1'}>
-                      Step 2: Select Items
-                    </span>
-                    <span className="text-gray-300 hidden sm:inline">|</span>
-                    <span className={!serviceabilityPassed ? 'text-gray-400 flex items-center gap-1' : 'font-bold text-gray-900 flex items-center gap-1'}>
-                      Step 3: Checkout
-                    </span>
+
+                {brand?.serviceability?.enabled && (brand.serviceability.coverageType === 'PINCODES' || brand.serviceability.coverageType === 'CITIES') && (
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4 justify-between mb-8">
+                    <div className="text-indigo-900">
+                      <p className="font-semibold text-sm">Campaign Delivery Area</p>
+                      <p className="text-xs mt-1">Please enter your 6-digit delivery Pincode to check serviceability.</p>
+                    </div>
+                    <div className="flex gap-2 w-full sm:w-auto">
+                      <input 
+                        id="serviceability-pincode-input"
+                        type="text" 
+                        placeholder="Enter Pincode" 
+                        value={deliveryPinCode}
+                        onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-40 bg-white"
+                      />
+                    </div>
                   </div>
                 )}
-
-                {hasServiceabilityRequirement && (!deliveryPinCode || deliveryPinCode.length < 6) && (
-                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6 sm:p-8 flex flex-col items-center text-center mb-8 shadow-sm">
-                     <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-sm">
-                       <MapPin size={28} className="text-indigo-600" />
-                     </div>
-                     <h3 className="text-xl sm:text-2xl font-bold text-indigo-900 mb-2">Check Delivery Availability</h3>
-                     <p className="text-indigo-700/80 mb-6 max-w-md text-sm sm:text-base">Please enter your 6-digit delivery pincode to see if we deliver to your location before adding items to your cart.</p>
-                     
-                     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
-                       <input 
-                         type="text" 
-                         placeholder="Enter Pincode" 
-                         value={deliveryPinCode}
-                         onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                         className="border border-indigo-200 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full bg-white outline-none shadow-sm text-center tracking-wider text-lg"
-                       />
-                     </div>
+                
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <h2 id="menu-items-section" className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                      Available Items ({items.filter(item => dietaryFilter === 'ALL' || item.dietaryType === dietaryFilter).length})
+                    </h2>
+                    
+                    <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg">
+                      <button 
+                        onClick={() => setDietaryFilter('ALL')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dietaryFilter === 'ALL' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                      >
+                        All
+                      </button>
+                      <button 
+                        onClick={() => setDietaryFilter('VEG')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5 ${dietaryFilter === 'VEG' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                      >
+                        <div className="w-2.5 h-2.5 rounded-full bg-green-600"></div> Veg
+                      </button>
+                      <button 
+                        onClick={() => setDietaryFilter('NON_VEG')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5 ${dietaryFilter === 'NON_VEG' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                      >
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-600"></div> Non-Veg
+                      </button>
+                    </div>
                   </div>
-                )}
 
-                <h2 id="menu-items-section" className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                  Available Items ({items.length})
-                </h2>
+                  {isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center mb-8">
+                      <p className="text-green-800 font-semibold">Great! We serve at this location.</p>
+                      <p className="text-green-700 text-sm">Let's start building your order.</p>
+                    </div>
+                  )}
 
-                {hasServiceabilityRequirement && deliveryPinCode && deliveryPinCode.length === 6 && (
-                  <>
-                    {serviceabilityPassed && !isCampaignExpired && (
-                      <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between mb-8 shadow-sm">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-green-100 text-green-600 p-2 rounded-full">
-                            <MapPin size={24} />
-                          </div>
-                          <div className="text-left">
-                            <p className="text-green-800 font-semibold">Delivery Available {deliveryForm.city && deliveryForm.state ? `in ${deliveryForm.city}` : ''} ({deliveryPinCode})</p>
-                            <p className="text-green-700 text-sm">You can now add items to your cart.</p>
-                          </div>
-                        </div>
-                        <button onClick={() => setDeliveryPinCode('')} className="mt-3 sm:mt-0 text-sm font-semibold text-green-700 underline hover:text-green-800 bg-white/50 px-3 py-1.5 rounded-lg border border-green-200">
-                          Change
+                  {!isServiceable && !!deliveryPinCode && !isCampaignExpired && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-8">
+                      <p className="text-red-700 font-semibold mb-2">Sorry, we currently do not deliver to this location ({deliveryPinCode}).</p>
+                      <p className="text-red-600 text-sm mb-4">Please raise your request using the 'Plan My Event' link below or provide a different pincode.</p>
+                      
+                      <div className="my-6">
+                        <p className="text-gray-700 font-medium mb-3">Looking for a nearby outlet?</p>
+                        <a 
+                          href={brand?.storeLocatorEnabled && brand?.storeLocatorUrl ? brand.storeLocatorUrl : `https://www.google.com/maps/search/${encodeURIComponent((brand?.name || 'Store') + ' near me')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-lg hover:bg-gray-50 transition shadow-sm w-full sm:w-auto"
+                        >
+                          <MapPin size={18} />
+                          Find Nearest {brand?.name} Store
+                        </a>
+                      </div>
+
+                      <div className="mt-4 pt-4 border-t border-red-200">
+                        <button onClick={() => { setShowEventPrompt(true); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}} className="text-sm font-semibold text-red-700 underline hover:text-red-800">
+                          Plan My Event
                         </button>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {!serviceabilityPassed && !isCampaignExpired && (
-                      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center mb-8 shadow-sm">
-                        <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-sm mx-auto">
-                           <MapPin size={28} className="text-red-500" />
-                        </div>
-                        <p className="text-red-700 font-bold text-lg mb-2">Sorry, delivery is currently unavailable at your location ({deliveryPinCode}).</p>
-                        <p className="text-red-600 text-sm mb-6">Please raise your request using the 'Plan My Event' link below or try a different pincode.</p>
-                        
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                          <button onClick={() => setDeliveryPinCode('')} className="inline-flex items-center justify-center gap-2 bg-white border border-red-300 text-red-700 font-medium py-2 px-6 rounded-lg hover:bg-red-50 transition shadow-sm w-full sm:w-auto">
-                            Change Pincode
-                          </button>
-                          
-                          <a 
-                            href={brand?.storeLocatorEnabled && brand?.storeLocatorUrl ? brand.storeLocatorUrl : `https://www.google.com/maps/search/${encodeURIComponent((brand?.name || 'Store') + ' near me')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center gap-2 bg-red-600 text-white font-medium py-2 px-6 rounded-lg hover:bg-red-700 transition shadow-sm w-full sm:w-auto"
-                          >
-                            <MapPin size={18} />
-                            View Nearby Stores
-                          </a>
-                        </div>
-                        
-                        <div className="mt-6 pt-4 border-t border-red-200">
-                          <button onClick={() => { setShowEventPrompt(true); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}} className="text-sm font-semibold text-red-700 underline hover:text-red-800">
-                            Plan My Event
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
+                  {isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
+                    <div className="flex justify-center mb-8">
+                      <a 
+                        href={brand?.storeLocatorEnabled && brand?.storeLocatorUrl ? brand.storeLocatorUrl : `https://www.google.com/maps/search/${encodeURIComponent((brand?.name || 'Store') + ' near me')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-lg hover:bg-gray-50 transition shadow-sm w-full sm:w-auto text-sm"
+                      >
+                        <MapPin size={16} />
+                        Want to visit us instead? Find Nearest {brand?.name} Store
+                      </a>
+                    </div>
+                  )}
 
                   {isCampaignExpired && (
                     <div className="bg-gray-100 border border-gray-300 rounded-xl p-6 text-center mb-8">
@@ -941,10 +951,10 @@ export function CampaignView() {
                     </div>
                   )}
 
-                    <div className={`grid sm:grid-cols-2 gap-6 ${isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
-                      {items.length === 0 ? (
-                      <p className="text-gray-500">No items configured for this campaign.</p>
-                    ) : items.map(item => {
+                  <div className={`grid sm:grid-cols-2 gap-6 ${isCampaignExpired ? 'opacity-50 pointer-events-none filter grayscale' : ''}`}>
+                      {items.filter(i => dietaryFilter === 'ALL' || i.dietaryType === dietaryFilter).length === 0 ? (
+                      <p className="text-gray-500">No items found for the selected filter.</p>
+                    ) : items.filter(i => dietaryFilter === 'ALL' || i.dietaryType === dietaryFilter).map(item => {
                       const activeVariants = item.variants?.filter(v => v.isActive) || [];
                       const hasVariants = activeVariants.length > 0;
                       
@@ -1067,7 +1077,7 @@ export function CampaignView() {
           </div>
 
           {/* Right Sidebar - Cart / Summary */}
-          {checkoutStep !== 'SUCCESS' && serviceabilityPassed && (
+          {checkoutStep !== 'SUCCESS' && (
             <div className="md:col-span-1">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 sticky top-24">
                 <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
