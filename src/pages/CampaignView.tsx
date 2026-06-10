@@ -509,8 +509,6 @@ export function CampaignView() {
         theme: {
           color: '#ef4444', 
         },
-        callback_url: window.location.origin + '/api/razorpay/callback',
-        callback_method: 'POST'
       };
       
       try {

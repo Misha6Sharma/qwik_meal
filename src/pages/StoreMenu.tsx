@@ -429,9 +429,7 @@ export function StoreMenu() {
           },
           theme: {
             color: '#fb923c', // Orange
-          },
-          callback_url: window.location.origin + '/api/razorpay/callback',
-          callback_method: 'POST'
+          }
         };
 
         try {
