@@ -128,6 +128,16 @@ export const dbService = {
     await setDoc(doc(db, 'orders', order.id), order);
   },
 
+  async getOrderByPaymentReference(paymentRef: string) {
+    const ordersCol = collection(db, 'orders');
+    const q = query(ordersCol, where('paymentReference', '==', paymentRef));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      return snapshot.docs[0].data();
+    }
+    return null;
+  },
+
   async updateOrder(orderId: string, updates: any) {
     await updateDoc(doc(db, 'orders', orderId), updates);
   },
