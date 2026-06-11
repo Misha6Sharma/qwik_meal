@@ -5,6 +5,8 @@ import { MenuItem, Campaign, Brand } from '../types';
 import { getBrands } from '../brands';
 import { getCampaigns } from '../campaigns';
 import { dbService } from '../db';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { authService } from '../auth';
 import { loadRazorpayScript, createRazorpayOrder, handleRazorpayCheckout, checkRazorpayOrderStatus } from '../lib/razorpay';
 
@@ -67,14 +69,26 @@ export function CampaignView() {
         try {
           const statusData = await checkRazorpayOrderStatus(pRzpId);
           if (statusData.status === 'paid' || statusData.status === 'captured') {
-             // Recover successful payment
              localStorage.removeItem('qwikmeal_pending_order_id');
              localStorage.removeItem('qwikmeal_pending_rzp_order_id');
              
-             dbService.updateOrder(pOrderId, {
+             // First Fetch order to get full details so we do not mangle it
+             const docRef = doc(db, 'orders', pOrderId);
+             const docSnap = await getDoc(docRef);
+             let updates: any = {
                status: 'CONFIRMED', 
                paymentStatus: 'PAID'
-             }).catch(e => console.error("Recovery DB update failed", e));
+             };
+             if (docSnap.exists()) {
+               const existingData = docSnap.data();
+               updates = {
+                 ...existingData,
+                 status: 'CONFIRMED',
+                 paymentStatus: 'PAID'
+               };
+             }
+
+             dbService.updateOrder(pOrderId, updates).catch(e => console.error("Recovery DB update failed", e));
 
              setOrderId(pOrderId);
              setSavedAmount(0); // Cannot recover exact savings amount easily on page reload
@@ -492,7 +506,21 @@ export function CampaignView() {
         paymentReference: razorpayOrder.id
       }));
       
-      await dbService.addOrder(JSON.parse(JSON.stringify(pendingOrder)));
+      try {
+        await dbService.addCampaignLog({
+          id: `log-${Date.now()}`,
+          action: 'DEBUG_CAMP_ADD_ORDER',
+          payload: JSON.stringify(pendingOrder).substring(0, 500)
+        });
+        await dbService.addOrder(JSON.parse(JSON.stringify(pendingOrder)));
+      } catch (e: any) {
+         await dbService.addCampaignLog({
+           id: `log-FAIL-${Date.now()}`,
+           action: 'DEBUG_CAMP_ADD_ORDER_FAILED',
+           payload: e?.message || 'unknown'
+         });
+         throw e;
+      }
 
       const options = {
         key: razorpayOrder.key_id, 
@@ -525,10 +553,10 @@ export function CampaignView() {
         setCheckoutStep('SUCCESS');
         setCart({});
         
-        dbService.updateOrder(generatedOrderId, {
+        await dbService.updateOrder(generatedOrderId, {
           status: 'CONFIRMED',
           paymentStatus: 'PAID',
-          paymentReference: response.razorpay_payment_id
+          paymentReference: response.razorpay_payment_id || ''
         }).catch(dbErr => {
           console.error("Firebase sync delayed or failed:", dbErr);
         });

@@ -6,6 +6,8 @@ import { getCampaigns } from '../campaigns';
 import { CartItem, OrderVariant, Campaign, Brand, MenuItem } from '../types';
 import { authService } from '../auth';
 import { dbService } from '../db';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { loadRazorpayScript, createRazorpayOrder, handleRazorpayCheckout, checkRazorpayOrderStatus } from '../lib/razorpay';
 import { jsPDF } from 'jspdf';
 import { toPng } from 'html-to-image';
@@ -73,10 +75,13 @@ export function StoreMenu() {
              localStorage.removeItem('qwikstore_pending_order_id');
              localStorage.removeItem('qwikstore_pending_rzp_order_id');
              
-             dbService.updateOrder(pOrderId, {
+             const docRef = doc(db, 'orders', pOrderId);
+             let updates: any = {
                status: 'PROCESSING', 
                paymentStatus: 'PAID'
-             }).catch(e => console.error("Recovery DB update failed", e));
+             };
+
+             dbService.updateOrder(pOrderId, updates).catch(e => console.error("Recovery DB update failed", e));
 
              setPlacedOrderId(pOrderId);
              setOrderSuccess(true);
@@ -356,7 +361,22 @@ export function StoreMenu() {
         const cleanedOrder = JSON.parse(JSON.stringify(order));
 
         if (isPending) {
-           await dbService.addOrder(cleanedOrder);
+           try {
+             await dbService.addCampaignLog({
+               id: `log-${Date.now()}`,
+               action: 'DEBUG_ADD_ORDER',
+               payload: JSON.stringify(cleanedOrder).substring(0, 500)
+             });
+             await dbService.addOrder(cleanedOrder);
+           } catch(e: any) {
+             console.error("ADD_ORDER_FAILED", e);
+             await dbService.addCampaignLog({
+               id: `log-FAIL-${Date.now()}`,
+               action: 'DEBUG_ADD_ORDER_FAILED',
+               payload: e?.message || 'unknown'
+             });
+             throw e;
+           }
            return;
         }
 
@@ -366,10 +386,12 @@ export function StoreMenu() {
         setCart([]);
         
         try {
-          await dbService.updateOrder(orderId, JSON.parse(JSON.stringify({
+          // Only update necessary fields to avoid data validation errors or overwriting with stale state
+          await dbService.updateOrder(orderId, {
             status: 'PROCESSING',
             paymentStatus: 'PAID',
-            paymentReference: txRef,
+            paymentReference: txRef || '',
+            // appending audit log via merge: true replaces it entirely, so we include the whole array
             auditLogs: [...cleanedOrder.auditLogs, {
               id: `LOG-${Date.now() + 1}`,
               timestamp: new Date().toISOString(),
@@ -377,7 +399,7 @@ export function StoreMenu() {
               performedBy: 'System',
               details: 'Payment processed successfully'
             }]
-          })));
+          });
         } catch (e) {
           console.warn('Firebase sync failed for order update', e);
         }

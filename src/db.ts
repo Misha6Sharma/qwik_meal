@@ -125,12 +125,13 @@ export const dbService = {
   },
 
   async addOrder(order: any) {
-    console.log("DB SERVICE: addOrder called with payload", JSON.stringify(order).substring(0, 200));
+    console.log(`[DB SERVICE RACE] addOrder called for path: orders/${order.id}`);
+    console.log(`[DB SERVICE RACE] addOrder payload has undefined?`, Object.keys(order).filter(k => order[k] === undefined));
     try {
       await setDoc(doc(db, 'orders', order.id), order);
-      console.log("DB SERVICE: addOrder success for id:", order.id);
+      console.log(`[DB SERVICE RACE] addOrder SUCCESS for path: orders/${order.id}`);
     } catch (err) {
-      console.error("DB SERVICE: addDoc Error", err);
+      console.error(`[DB SERVICE RACE] addOrder DEFAULTED/FAILED for path: orders/${order.id}`, err);
       throw err;
     }
   },
@@ -146,12 +147,12 @@ export const dbService = {
   },
 
   async updateOrder(orderId: string, updates: any) {
-    console.log("DB SERVICE: updateOrder called for", orderId, "with updates:", JSON.stringify(updates).substring(0, 200));
+    console.log(`[DB SERVICE RACE] updateOrder called for path: orders/${orderId}`);
     try {
       await setDoc(doc(db, 'orders', orderId), updates, { merge: true });
-      console.log("DB SERVICE: updateOrder success for id:", orderId);
+      console.log(`[DB SERVICE RACE] updateOrder SUCCESS for path: orders/${orderId}`);
     } catch (err) {
-      console.error("DB SERVICE: updateDoc Error", err);
+      console.error(`[DB SERVICE RACE] updateOrder FAILED for path: orders/${orderId}`, err);
       throw err;
     }
   },

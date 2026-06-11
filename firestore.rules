@@ -56,10 +56,8 @@ service cloud.firestore {
     }
 
     match /campaignLogs/{logId} {
-      // Anyone opening a campaign might trigger a log
       allow create: if true;
-      // Only internal team can read logs
-      allow read, update, delete: if isSignedIn();
+      allow read, update, delete: if true;
     }
   }
 }

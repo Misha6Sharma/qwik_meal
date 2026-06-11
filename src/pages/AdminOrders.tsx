@@ -194,10 +194,10 @@ export function AdminOrders() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm max-w-xs">
-                        {order.items.map((item, i) => (
-                           user?.role === 'BRAND_ADMIN' && user.brandId !== item.menuItem.brandId ? null : (
+                        {order.items?.map((item, i) => (
+                           user?.role === 'BRAND_ADMIN' && user.brandId !== item.menuItem?.brandId ? null : (
                               <div key={i} className="mb-1">
-                                <span className="font-semibold">{item.quantity}x</span> {item.menuItem.title}
+                                <span className="font-semibold">{item.quantity}x</span> {item.menuItem?.name || item.menuItem?.title || 'Unknown Item'}
                               </div>
                            )
                         ))}
