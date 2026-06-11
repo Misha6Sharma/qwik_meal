@@ -125,7 +125,14 @@ export const dbService = {
   },
 
   async addOrder(order: any) {
-    await setDoc(doc(db, 'orders', order.id), order);
+    console.log("DB SERVICE: addOrder called with payload", JSON.stringify(order).substring(0, 200));
+    try {
+      await setDoc(doc(db, 'orders', order.id), order);
+      console.log("DB SERVICE: addOrder success for id:", order.id);
+    } catch (err) {
+      console.error("DB SERVICE: addDoc Error", err);
+      throw err;
+    }
   },
 
   async getOrderByPaymentReference(paymentRef: string) {
@@ -139,7 +146,14 @@ export const dbService = {
   },
 
   async updateOrder(orderId: string, updates: any) {
-    await updateDoc(doc(db, 'orders', orderId), updates);
+    console.log("DB SERVICE: updateOrder called for", orderId, "with updates:", JSON.stringify(updates).substring(0, 200));
+    try {
+      await setDoc(doc(db, 'orders', orderId), updates, { merge: true });
+      console.log("DB SERVICE: updateOrder success for id:", orderId);
+    } catch (err) {
+      console.error("DB SERVICE: updateDoc Error", err);
+      throw err;
+    }
   },
 
   // TRANSACTIONS

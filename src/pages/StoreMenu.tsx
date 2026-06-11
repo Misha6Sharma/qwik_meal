@@ -353,12 +353,10 @@ export function StoreMenu() {
           }]
         };
 
+        const cleanedOrder = JSON.parse(JSON.stringify(order));
+
         if (isPending) {
-           try {
-             await dbService.addOrder(order);
-           } catch (e) {
-             console.warn('Firebase sync failed for pending order', e);
-           }
+           await dbService.addOrder(cleanedOrder);
            return;
         }
 
@@ -368,18 +366,18 @@ export function StoreMenu() {
         setCart([]);
         
         try {
-          await dbService.updateOrder(orderId, {
+          await dbService.updateOrder(orderId, JSON.parse(JSON.stringify({
             status: 'PROCESSING',
             paymentStatus: 'PAID',
             paymentReference: txRef,
-            auditLogs: [...order.auditLogs, {
+            auditLogs: [...cleanedOrder.auditLogs, {
               id: `LOG-${Date.now() + 1}`,
               timestamp: new Date().toISOString(),
               action: 'PAYMENT_SUCCESS',
               performedBy: 'System',
               details: 'Payment processed successfully'
             }]
-          });
+          })));
         } catch (e) {
           console.warn('Firebase sync failed for order update', e);
         }
@@ -398,7 +396,7 @@ export function StoreMenu() {
         };
         
         try {
-          await dbService.addTransaction(txAudit);
+          await dbService.addTransaction(JSON.parse(JSON.stringify(txAudit)));
         } catch (e) {
           console.warn('Firebase sync failed for transaction', e);
         }

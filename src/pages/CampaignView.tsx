@@ -492,7 +492,7 @@ export function CampaignView() {
         paymentReference: razorpayOrder.id
       }));
       
-      await dbService.addOrder(pendingOrder);
+      await dbService.addOrder(JSON.parse(JSON.stringify(pendingOrder)));
 
       const options = {
         key: razorpayOrder.key_id, 

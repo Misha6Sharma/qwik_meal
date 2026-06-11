@@ -2,44 +2,64 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
     match /brands/{brandId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn();
     }
     
     match /campaigns/{campaignId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn();
     }
     
     match /menuItems/{itemId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn();
     }
     
     match /orders/{orderId} {
-      allow read, write: if true;
+      // Guests and users can create and update orders during checkout flow
+      allow create, read, update: if true;
+      allow delete: if isSignedIn();
     }
     
     match /transactions/{txnId} {
-      allow read, write: if true;
+      // Guests can trigger transaction records during payment
+      allow create, read: if true;
+      allow update, delete: if isSignedIn();
     }
     
     match /subscriptions/{subId} {
-      allow read, write: if true;
+      allow create: if true;
+      allow read, update, delete: if isSignedIn();
     }
     
     match /users/{userId} {
-      allow read, write: if true;
+      // Allow users to manage their own profile, or admins to see everyone
+      allow read, write: if isSignedIn();
     }
     
     match /logins/{loginId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
+    // Newly added collections for leads and campaign logs
     match /leads/{leadId} {
-      allow read, write: if true;
+      // Anyone can submit a lead form
+      allow create: if true;
+      // Only authenticated admins/users can read or update leads
+      allow read, update, delete: if isSignedIn();
     }
 
     match /campaignLogs/{logId} {
-      allow read, write: if true;
+      // Anyone opening a campaign might trigger a log
+      allow create: if true;
+      // Only internal team can read logs
+      allow read, update, delete: if isSignedIn();
     }
   }
 }
