@@ -98,8 +98,8 @@ export const handleRazorpayCheckout = (options: any): Promise<any> => {
           if (statusData.status === "paid" || statusData.status === "captured") {
             isHandled = true;
             clearInterval(pollInterval);
-            rzp.close(); // Programmatically close the modal
             resolve({ razorpay_payment_id: `reconciled_${options.order_id}` });
+            try { rzp.close(); } catch (err) {}
           }
         } catch (e) {
           // Ignore polling errors

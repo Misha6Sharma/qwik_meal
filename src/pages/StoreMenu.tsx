@@ -792,7 +792,29 @@ export function StoreMenu() {
             )}
             
             <div className="p-4 flex-1 overflow-y-auto">
-              {cart.length === 0 ? (
+              {orderSuccess ? (
+                  <div className="py-8 text-center space-y-4">
+                    <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <CreditCard size={32} />
+                    </div>
+                    <div className="text-green-700 font-bold text-lg">
+                      Order Placed Successfully!
+                    </div>
+                    <p className="text-sm text-gray-500 leading-relaxed max-w-[250px] mx-auto">
+                       Your order is confirmed. View Dashboard to track {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}.
+                    </p>
+                    {orderType === 'PICKUP' && (
+                      <div className="mt-6 flex justify-center">
+                        <button 
+                          onClick={downloadSlip}
+                          className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition"
+                        >
+                          <Download size={18} /> Download Pickup Confirmation Slip
+                        </button>
+                      </div>
+                    )}
+                  </div>
+              ) : cart.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <ShoppingCart size={32} className="mx-auto mb-3 opacity-50" />
                   <p className="text-sm font-medium">Your cart is empty.</p>
@@ -819,28 +841,6 @@ export function StoreMenu() {
                         </div>
                       </div>
                     ))}
-                  </div>
-                ) : orderSuccess ? (
-                  <div className="py-8 text-center space-y-4">
-                    <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <CreditCard size={32} />
-                    </div>
-                    <div className="text-green-700 font-bold text-lg">
-                      Order Placed Successfully!
-                    </div>
-                    <p className="text-sm text-gray-500 leading-relaxed max-w-[250px] mx-auto">
-                       Your order for ₹{finalTotal.toFixed(2)} is confirmed. View Dashboard to track {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}.
-                    </p>
-                    {orderType === 'PICKUP' && (
-                      <div className="mt-6 flex justify-center">
-                        <button 
-                          onClick={downloadSlip}
-                          className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition"
-                        >
-                          <Download size={18} /> Download Pickup Confirmation Slip
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <form id="checkout-form" onSubmit={handlePlaceOrder} className="space-y-6">
@@ -991,9 +991,9 @@ export function StoreMenu() {
               )}
             </div>
 
-            {cart.length > 0 && (
+            {(cart.length > 0 || orderSuccess) && (
               <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-4">
-                {!showCheckout && (
+                {!showCheckout && !orderSuccess && (
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between text-gray-600">
                       <span>Subtotal</span>
@@ -1016,13 +1016,15 @@ export function StoreMenu() {
                   </div>
                 )}
                 
-                <div className="border-t border-gray-200 pt-2 flex justify-between items-center bg-gray-50">
-                   <div className="flex flex-col">
-                     <span className="font-bold text-gray-900 text-sm">Total Amount</span>
-                     <span className="font-bold text-xl text-red-600">₹{finalTotal.toFixed(2)}</span>
-                   </div>
+                <div className={`border-t border-gray-200 pt-2 flex ${orderSuccess ? 'justify-center' : 'justify-between'} items-center bg-gray-50`}>
+                   {!orderSuccess && (
+                     <div className="flex flex-col">
+                       <span className="font-bold text-gray-900 text-sm">Total Amount</span>
+                       <span className="font-bold text-xl text-red-600">₹{finalTotal.toFixed(2)}</span>
+                     </div>
+                   )}
                    
-                   {!showCheckout ? (
+                   {!showCheckout && !orderSuccess ? (
                     <button 
                       onClick={() => {
                         if (!serviceabilityPassed && hasServiceabilityRequirement) {
