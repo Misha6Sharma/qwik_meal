@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Image as ImageIcon, Save, Trash2, CheckCircle2, Edit2, X, Upload, BarChart3, Users, DollarSign, ShoppingBag, Eye, EyeOff, Share2, Copy, MessageSquare, Mail, Link2, Download, MapPin, Calendar, Clock } from 'lucide-react';
-import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, ServiceabilitySettings, FulfillmentSettings } from '../types';
+import { Plus, Image as ImageIcon, Save, Trash2, CheckCircle2, Edit2, X, Upload, BarChart3, Users, DollarSign, ShoppingBag, Eye, EyeOff, Share2, Copy, MessageSquare, Mail, Link2, Download, MapPin, Calendar, Clock, Search, Filter } from 'lucide-react';
+import { MenuItem, Campaign, Brand, ItemVariant, CampaignPrivacy, CoverageType, ServiceabilitySettings, FulfillmentSettings, MasterMenuItem } from '../types';
 import { getBrands } from '../brands';
 import { updateCampaignCTA, updateCampaignSocialProof, getCampaigns, updateCampaignName, updateCampaignPrivacy, updateCampaignBenefits, updateCampaignTimeline, updateCampaignFulfillment } from '../campaigns';
 import { authService } from '../auth';
@@ -20,6 +20,10 @@ export function AdminMenuBuilder() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [allowedBrands, setAllowedBrands] = useState<Brand[]>([]);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [masterMenuItems, setMasterMenuItems] = useState<MasterMenuItem[]>([]);
+  const [showMasterMenuModal, setShowMasterMenuModal] = useState(false);
+  const [mmSearch, setMmSearch] = useState('');
+  const [mmCategory, setMmCategory] = useState('');
 
   useEffect(() => {
     getBrands().then(loadedBrands => {
@@ -71,6 +75,14 @@ export function AdminMenuBuilder() {
       setCampaignId('');
     }
   }, [brandId, brandCampaigns, campaignId]);
+
+  useEffect(() => {
+    if (brandId) {
+       dbService.getMasterMenuItems(brandId).then(list => setMasterMenuItems(list));
+    } else {
+       setMasterMenuItems([]);
+    }
+  }, [brandId]);
 
   const [showSuccess, setShowSuccess] = useState(false);
   const [itemImageFile, setItemImageFile] = useState<File | null>(null);
@@ -310,6 +322,56 @@ export function AdminMenuBuilder() {
         details
       });
     } catch (e) {}
+  };
+
+  const [mmSelectedItems, setMmSelectedItems] = useState<Set<string>>(new Set());
+
+  const handleAddFromMasterMenu = async () => {
+     if (!campaignId) {
+        alert("Please create or select a campaign first.");
+        return;
+     }
+
+     const itemsToAdd = masterMenuItems.filter(i => mmSelectedItems.has(i.id));
+     const newItems: MenuItem[] = [];
+
+     for (const mmItem of itemsToAdd) {
+        // Skip if already in campaign logic, or allow duplicates? Better skip.
+        if (items.find(i => i.masterMenuItemId === mmItem.id && i.campaignId === campaignId)) continue;
+        
+        const menuItem: MenuItem = {
+           id: `mi-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+           brandId,
+           campaignId,
+           masterMenuItemId: mmItem.id,
+           name: mmItem.name,
+           description: mmItem.description,
+           mealImage: mmItem.image || imgFallback,
+           mrp: mmItem.basePrice,
+           offerPrice: mmItem.discountedPrice || mmItem.basePrice,
+           deliveryCharges: 0,
+           proposedSaving: (mmItem.basePrice - (mmItem.discountedPrice || mmItem.basePrice)),
+           dietaryType: mmItem.dietaryType as any,
+           category: mmItem.category,
+           isActive: true,
+        };
+        newItems.push(menuItem);
+     }
+
+     if (newItems.length > 0) {
+        const updated = [...items, ...newItems];
+        setItems(updated);
+        try {
+           await Promise.all(newItems.map(i => dbService.addMenuItem(i)));
+           await logCampaignAction('Items Added from Master Menu', `Added ${newItems.length} items`);
+           setShowSuccess(true);
+           setTimeout(() => setShowSuccess(false), 3000);
+        } catch (e) {
+           console.error('Error adding items:', e);
+        }
+     }
+     setShowMasterMenuModal(false);
+     setMmSelectedItems(new Set());
   };
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -738,141 +800,31 @@ export function AdminMenuBuilder() {
           <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <Plus size={20} className="text-red-500" />
-              Add Menu Item
+              Campaign Menu Assortment
             </h2>
           </div>
-          <div className="p-6">
-            <form onSubmit={handleAddItem} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
-                <input 
-                  type="text" 
-                  value={newItem.name}
-                  onChange={e => setNewItem({...newItem, name: e.target.value})}
-                  required
-                  placeholder="e.g. Veg Extravaganza"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Product Description</label>
-                <textarea 
-                  value={newItem.description}
-                  onChange={e => setNewItem({...newItem, description: e.target.value})}
-                  rows={2}
-                  placeholder="Short description of the item"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500 resize-none text-sm"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Item Image</label>
-                <div className="flex flex-col gap-3">
-                  <ImageUploadCropper 
-                    aspectRatio={1} 
-                    currentImage={newItem.mealImage}
-                    onImageCropped={(croppedImg) => {
-                      setItemImageFile(new File([new Blob()], "cropped.jpg", { type: "image/jpeg" }));
-                      setNewItem({...newItem, mealImage: croppedImg});
-                    }}
-                    buttonLabel="Upload & Crop Image"
-                  />
-                  <input 
-                    type="text" 
-                    value={itemImageFile ? itemImageFile.name : newItem.mealImage}
-                    onChange={e => {
-                      setItemImageFile(null); // Clear file if URL is manually edited
-                      setNewItem({...newItem, mealImage: e.target.value})
-                    }}
-                    placeholder="Or paste image URL here..."
-                    className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-red-500 focus:border-red-500"
-                  />
-                  {newItem.mealImage && (
-                    <div className="w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center">
-                      <img src={newItem.mealImage || undefined} alt="Preview" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Item Type *</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input 
-                      type="radio" 
-                      name="dietaryType" 
-                      value="VEG" 
-                      checked={newItem.dietaryType === 'VEG'}
-                      onChange={() => setNewItem({...newItem, dietaryType: 'VEG'})}
-                      className="text-green-600 focus:ring-green-500" 
-                    />
-                    <span className="font-medium text-green-700">Veg</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input 
-                      type="radio" 
-                      name="dietaryType" 
-                      value="NON_VEG" 
-                      checked={newItem.dietaryType === 'NON_VEG'}
-                      onChange={() => setNewItem({...newItem, dietaryType: 'NON_VEG'})}
-                      className="text-red-600 focus:ring-red-500" 
-                    />
-                    <span className="font-medium text-red-700">Non-Veg</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">MRP (₹) *</label>
-                  <input 
-                    type="number" 
-                    min="0"
-                    value={newItem.mrp || ''}
-                    onChange={e => setNewItem({...newItem, mrp: Number(e.target.value)})}
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Offer Price (₹) *</label>
-                  <input 
-                    type="number" 
-                    min="0"
-                    value={newItem.offerPrice || ''}
-                    onChange={e => setNewItem({...newItem, offerPrice: Number(e.target.value)})}
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Charges (₹)</label>
-                <input 
-                  type="number" 
-                  min="0"
-                  value={newItem.deliveryCharges || ''}
-                  onChange={e => setNewItem({...newItem, deliveryCharges: Number(e.target.value)})}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
-                />
-              </div>
-
-              <div className="bg-green-50 text-green-800 p-3 rounded-lg border border-green-100 flex justify-between items-center text-sm">
-                <span className="font-medium">Proposed Saving:</span>
-                <span className="font-bold text-lg">₹{Math.max(0, proposedSaving)}</span>
-              </div>
-
-              <button 
-                type="submit"
-                disabled={isUploading}
-                className={`w-full text-white font-bold py-3 px-4 rounded-lg transition flex items-center justify-center gap-2 ${isUploading ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
-              >
-                {isUploading ? 'Uploading Image...' : 'Add Option to Menu'}
-              </button>
-            </form>
+          <div className="p-6 text-center">
+            <p className="text-sm text-gray-500 mb-6">Create your campaign menu by selecting items from your brand's master menu repository.</p>
+            <button 
+              onClick={() => setShowMasterMenuModal(true)}
+              className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 transition"
+            >
+              <Plus size={18} /> Browse Master Menu
+            </button>
+            
+            <div className="mt-6 pt-6 border-t border-gray-100">
+               <div className="flex flex-col gap-2">
+                 <div className="flex items-center gap-3 text-sm text-gray-600">
+                    <CheckCircle2 size={16} className="text-green-500" /> Campaign specific pricing
+                 </div>
+                 <div className="flex items-center gap-3 text-sm text-gray-600">
+                    <CheckCircle2 size={16} className="text-green-500" /> Quantity restrictions
+                 </div>
+                 <div className="flex items-center gap-3 text-sm text-gray-600">
+                    <CheckCircle2 size={16} className="text-green-500" /> Visibility controls
+                 </div>
+               </div>
+            </div>
           </div>
         </div>
 
@@ -977,6 +929,11 @@ export function AdminMenuBuilder() {
                                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">Hidden</span>
                              )}
                           </div>
+                          {item.masterMenuItemId && masterMenuItems.find(m => m.id === item.masterMenuItemId)?.isActive === false && (
+                             <div className="bg-red-50 border border-red-100 text-red-600 px-3 py-1.5 rounded-md text-xs font-medium mb-2 inline-block">
+                                ⚠️ This item is deactivated in the Master Menu.
+                             </div>
+                          )}
                           {item.description && <p className="text-sm text-gray-500 line-clamp-1 mt-1">{item.description}</p>}
                           <div className="flex flex-wrap gap-4 mt-2 justify-center md:justify-start">
                             <div className="flex flex-col">
@@ -1127,12 +1084,23 @@ export function AdminMenuBuilder() {
             </div>
             
             <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              {editingItemData.masterMenuItemId ? (
+                 <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg text-sm text-blue-800 mb-4 flex items-start gap-2">
+                    <CheckCircle2 size={16} className="mt-0.5" />
+                    <div>
+                       <strong>Linked to Master Menu</strong>
+                       <p className="mt-0.5">Name, Description, and Image are managed centrally. You can configure campaign-specific overrides below.</p>
+                    </div>
+                 </div>
+              ) : null}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
                 <input 
                   type="text" value={editingItemData.name || ''}
                   onChange={e => setEditingItemData({...editingItemData, name: e.target.value})}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
+                  disabled={!!editingItemData.masterMenuItemId}
+                  className={`w-full border rounded-lg px-4 py-2 ${editingItemData.masterMenuItemId ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-red-500 focus:border-red-500'}`}
                 />
               </div>
               <div>
@@ -1140,7 +1108,8 @@ export function AdminMenuBuilder() {
                 <textarea 
                   value={editingItemData.description || ''}
                   onChange={e => setEditingItemData({...editingItemData, description: e.target.value})}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500" rows={2}
+                  disabled={!!editingItemData.masterMenuItemId}
+                  className={`w-full border rounded-lg px-4 py-2 ${editingItemData.masterMenuItemId ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-red-500 focus:border-red-500'}`} rows={2}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -1148,9 +1117,10 @@ export function AdminMenuBuilder() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                   <input 
                     type="text" value={editingItemData.category || ''}
+                    disabled={!!editingItemData.masterMenuItemId}
                     placeholder="e.g. Starters, Mains"
                     onChange={e => setEditingItemData({...editingItemData, category: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
+                    className={`w-full border rounded-lg px-4 py-2 ${editingItemData.masterMenuItemId ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-red-500 focus:border-red-500'}`}
                   />
                 </div>
                 <div>
@@ -1165,8 +1135,9 @@ export function AdminMenuBuilder() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Dietary Type</label>
                   <select 
                     value={editingItemData.dietaryType || 'VEG'}
+                    disabled={!!editingItemData.masterMenuItemId}
                     onChange={e => setEditingItemData({...editingItemData, dietaryType: e.target.value as any})}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
+                    className={`w-full border rounded-lg px-4 py-2 ${editingItemData.masterMenuItemId ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-red-500 focus:border-red-500'}`}
                   >
                     <option value="VEG">Vegetarian</option>
                     <option value="NON_VEG">Non-Vegetarian</option>
@@ -1176,26 +1147,81 @@ export function AdminMenuBuilder() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
                   <input 
                     type="text" value={editingItemData.mealImage || ''}
-                    onChange={e => setEditingItemData({...editingItemData, mealImage: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500 focus:border-red-500"
+                    disabled={!!editingItemData.masterMenuItemId}
+                    className={`w-full border rounded-lg px-4 py-2 ${editingItemData.masterMenuItemId ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-red-500 focus:border-red-500'}`}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">MRP (₹)</label>
-                  <input 
-                    type="number" value={editingItemData.mrp || 0}
-                    onChange={e => setEditingItemData({...editingItemData, mrp: Number(e.target.value)})}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Offer Price (₹)</label>
-                  <input 
-                    type="number" value={editingItemData.offerPrice || 0}
-                    onChange={e => setEditingItemData({...editingItemData, offerPrice: Number(e.target.value)})}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  />
-                </div>
+              </div>
+
+              <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 mt-6">
+                 <h4 className="font-semibold text-orange-800 mb-4 pb-2 border-b border-orange-200">Campaign-Specific Configurations</h4>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Campaign Base Price (₹)</label>
+                      <input 
+                        type="number" value={editingItemData.mrp || 0}
+                        onChange={e => setEditingItemData({...editingItemData, mrp: Number(e.target.value)})}
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Campaign Offer Price (₹)</label>
+                      <input 
+                        type="number" value={editingItemData.offerPrice || 0}
+                        onChange={e => setEditingItemData({...editingItemData, offerPrice: Number(e.target.value)})}
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Quantity Per Order</label>
+                      <input 
+                        type="number" value={editingItemData.maxQuantityPerOrder || ''}
+                        onChange={e => setEditingItemData({...editingItemData, maxQuantityPerOrder: Number(e.target.value) || undefined})}
+                        placeholder="No limit"
+                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500"
+                      />
+                    </div>
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">Visible From</label>
+                       <input 
+                         type="time" value={editingItemData.visibilityTimeStart || ''}
+                         onChange={e => setEditingItemData({...editingItemData, visibilityTimeStart: e.target.value})}
+                         className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500"
+                       />
+                    </div>
+                    <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">Visible Until</label>
+                       <input 
+                         type="time" value={editingItemData.visibilityTimeEnd || ''}
+                         onChange={e => setEditingItemData({...editingItemData, visibilityTimeEnd: e.target.value})}
+                         className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-red-500"
+                       />
+                    </div>
+                 </div>
+
+                 <div className="flex items-center gap-6 mt-4 pt-4 border-t border-orange-200">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={editingItemData.isFeatured || false}
+                        onChange={e => setEditingItemData({...editingItemData, isFeatured: e.target.checked})}
+                        className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500"
+                      />
+                      <span className="text-sm font-medium text-gray-800">Featured Item</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={editingItemData.isActive !== false}
+                        onChange={e => setEditingItemData({...editingItemData, isActive: e.target.checked})}
+                        className="w-4 h-4 rounded text-green-600 focus:ring-green-500"
+                      />
+                      <span className="text-sm font-medium text-gray-800">Currently Available</span>
+                    </label>
+                 </div>
               </div>
             </div>
             
@@ -2216,6 +2242,114 @@ Powered by QwikMeal
                   Save Fulfillment Rules
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMasterMenuModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 text-gray-900">
+               <h3 className="font-bold text-lg flex items-center gap-2">
+                 <Plus size={20} className="text-red-600" /> Browse Master Menu
+               </h3>
+               <button onClick={() => setShowMasterMenuModal(false)} className="text-gray-400 hover:text-gray-600">
+                 <X size={20} />
+               </button>
+            </div>
+            
+            <div className="p-6 bg-white flex flex-col sm:flex-row gap-4 border-b border-gray-100">
+               <div className="relative flex-1">
+                 <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                 <input 
+                   type="text" 
+                   placeholder="Search items by name, category..." 
+                   value={mmSearch}
+                   onChange={e => setMmSearch(e.target.value)}
+                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-100 outline-none"
+                 />
+               </div>
+               <div className="relative w-full sm:w-64">
+                 <Filter size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                 <select 
+                   value={mmCategory}
+                   onChange={e => setMmCategory(e.target.value)}
+                   className="w-full pl-10 pr-8 py-2 border rounded-lg appearance-none focus:ring-2 focus:ring-red-100 outline-none bg-white"
+                 >
+                   <option value="">All Categories</option>
+                   {Array.from(new Set(masterMenuItems.filter(i => i.isActive !== false).map(i => i.category))).filter(Boolean).map(c => (
+                     <option key={c as string} value={c as string}>{c as string}</option>
+                   ))}
+                 </select>
+               </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
+               {masterMenuItems.length === 0 ? (
+                 <div className="text-center py-12 text-gray-500">
+                    <p>No active items found in the Master Menu for this brand.</p>
+                 </div>
+               ) : (
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                   {masterMenuItems.filter(i => {
+                      if (i.isActive === false) return false;
+                      let match = true;
+                      if (mmSearch) {
+                         const q = mmSearch.toLowerCase();
+                         match = i.name.toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q);
+                      }
+                      if (mmCategory && i.category !== mmCategory) match = false;
+                      return match;
+                   }).map(item => {
+                      const isAlreadyAdded = items.find(ci => ci.masterMenuItemId === item.id && ci.campaignId === campaignId);
+                      const isSelected = mmSelectedItems.has(item.id);
+                      return (
+                        <div key={item.id} className={`border rounded-xl bg-white p-4 flex gap-4 items-start transition-shadow ${isAlreadyAdded ? 'opacity-60 cursor-not-allowed' : 'hover:shadow-md cursor-pointer'}`} onClick={() => {
+                           if (isAlreadyAdded) return;
+                           const next = new Set(mmSelectedItems);
+                           if (next.has(item.id)) next.delete(item.id);
+                           else next.add(item.id);
+                           setMmSelectedItems(next);
+                        }}>
+                           <div className="w-16 h-16 rounded overflow-hidden flex-shrink-0 bg-gray-100">
+                             <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                           </div>
+                           <div className="flex-1">
+                              <h4 className="font-bold text-gray-900 text-sm line-clamp-1">{item.name}</h4>
+                              <p className="text-xs text-gray-500 mb-2">{item.category}</p>
+                              <div className="flex justify-between items-center">
+                                 <span className="font-medium text-gray-900 text-sm">₹{item.discountedPrice || item.basePrice}</span>
+                                 {isAlreadyAdded ? (
+                                    <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">Added</span>
+                                 ) : (
+                                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-red-600 border-red-600 text-white' : 'border-gray-300'}`}>
+                                       {isSelected && <CheckCircle2 size={14} />}
+                                    </div>
+                                 )}
+                              </div>
+                           </div>
+                        </div>
+                      );
+                   })}
+                 </div>
+               )}
+            </div>
+
+            <div className="p-6 border-t border-gray-100 bg-white flex justify-between items-center">
+               <span className="text-sm font-medium text-gray-700">{mmSelectedItems.size} items selected</span>
+               <div className="flex gap-3">
+                  <button onClick={() => setShowMasterMenuModal(false)} className="px-5 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm">
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleAddFromMasterMenu}
+                    disabled={mmSelectedItems.size === 0}
+                    className={`px-5 py-2 rounded-lg font-medium text-sm text-white ${mmSelectedItems.size > 0 ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                  >
+                    Add Selected to Campaign
+                  </button>
+               </div>
             </div>
           </div>
         </div>

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, CheckCircle2, Image as ImageIcon, X, MapPin } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle2, Image as ImageIcon, X, MapPin, Menu } from 'lucide-react';
 import { Brand, ServiceabilitySettings, CoverageType } from '../types';
 import { getBrands, addBrand, updateBrand, deleteBrand } from '../brands';
 import { authService } from '../auth';
 import { ImageUploadCropper } from '../components/ImageUploadCropper';
+import { useNavigate } from 'react-router-dom';
 
 export function SuperAdminBrands() {
+  const navigate = useNavigate();
   const [brands, setBrands] = useState<Brand[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [currentBrand, setCurrentBrand] = useState<Partial<Brand>>({});
@@ -443,6 +445,13 @@ export function SuperAdminBrands() {
                 <div className="flex justify-between items-center border-t border-gray-100 pt-4">
                   <span className="text-sm font-medium text-red-600 bg-red-50 px-2 py-1 rounded">{brand.offer}</span>
                   <div className="flex gap-2">
+                    <button 
+                      onClick={() => navigate(`/super/brands/${brand.id}/menu`)}
+                      className="p-1.5 text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center justify-center gap-1"
+                      title="Master Menu Repository"
+                    >
+                      <Menu size={16} />
+                    </button>
                     <button 
                       onClick={() => openServiceability(brand)}
                       className="p-1.5 text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center justify-center gap-1"

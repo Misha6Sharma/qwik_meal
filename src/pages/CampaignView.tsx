@@ -263,9 +263,29 @@ export function CampaignView() {
         const allowedItemsList = allowedItemsParam ? allowedItemsParam.split(',') : null;
 
         const campaignItems = allItems
-            .filter(i => i.campaignId === foundCampaign.id && i.brandId === foundCampaign.brandId && i.isActive !== false)
+            .filter(i => {
+                if (i.campaignId !== foundCampaign.id || i.brandId !== foundCampaign.brandId || i.isActive === false) return false;
+                
+                // Visibility time constraints
+                if (i.visibilityTimeStart || i.visibilityTimeEnd) {
+                   const now = new Date();
+                   const curTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                   
+                   // Check start
+                   if (i.visibilityTimeStart && curTime < i.visibilityTimeStart) return false;
+                   // Check end
+                   if (i.visibilityTimeEnd && curTime > i.visibilityTimeEnd) return false;
+                }
+                
+                return true;
+            })
             .filter(i => allowedItemsList ? allowedItemsList.includes(i.id) : true)
-            .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+            .sort((a, b) => {
+               // Featured items first
+               if (a.isFeatured && !b.isFeatured) return -1;
+               if (!a.isFeatured && b.isFeatured) return 1;
+               return (a.displayOrder || 0) - (b.displayOrder || 0);
+            });
 
         if (active) {
           setCampaign(foundCampaign);
@@ -307,6 +327,15 @@ export function CampaignView() {
     setCart(prev => {
       const current = prev[cartKey] || 0;
       const next = current + delta;
+      
+      const [itemId] = cartKey.split('_');
+      const item = items.find(i => i.id === itemId);
+      
+      if (item && item.maxQuantityPerOrder && next > item.maxQuantityPerOrder) {
+        alert(`You can only add up to ${item.maxQuantityPerOrder} of this item per order.`);
+        return prev;
+      }
+      
       if (next <= 0) {
         const newCart = { ...prev };
         delete newCart[cartKey];
@@ -988,9 +1017,14 @@ export function CampaignView() {
                       const hasVariants = activeVariants.length > 0;
                       
                       return (
-                      <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col">
-                        <div className="h-48 overflow-hidden bg-gray-100">
+                      <div key={item.id} className={`bg-white rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition flex flex-col ${item.isFeatured ? 'border-orange-300 ring-1 ring-orange-200' : 'border-gray-200'}`}>
+                        <div className="h-48 overflow-hidden bg-gray-100 relative">
                           <img src={item.mealImage || undefined} alt={item.name} loading="lazy" className="w-full h-full object-contain" />
+                          {item.isFeatured && (
+                             <div className="absolute top-2 right-2 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded shadow-sm">
+                               ★ Bestseller
+                             </div>
+                          )}
                         </div>
                         <div className="p-4 flex-1 flex flex-col">
                           <div className="flex items-center gap-2 mb-2">
@@ -999,7 +1033,10 @@ export function CampaignView() {
                              </div>
                              <h3 className="font-bold text-lg text-gray-900 line-clamp-1">{item.name}</h3>
                           </div>
-                          {item.description && <p className="text-sm text-gray-500 line-clamp-2 mb-3 h-10">{item.description}</p>}
+                          {item.description && <p className="text-sm text-gray-500 line-clamp-2 mb-2 h-10">{item.description}</p>}
+                          {item.maxQuantityPerOrder && (
+                             <p className="text-xs text-orange-600 font-medium mb-2">Max {item.maxQuantityPerOrder} per order</p>
+                          )}
                           
                           <div className="mt-auto">
                             {!hasVariants ? (

@@ -121,6 +121,26 @@ export type Campaign = {
   flyerPdfUrl?: string;
 };
 
+export type MasterMenuItem = {
+  id: string;
+  brandId: string;
+  name: string;
+  description?: string;
+  category: string;
+  subCategory?: string;
+  dietaryType: 'VEG' | 'NON_VEG' | 'EGG' | 'JAIN';
+  cuisineType?: string;
+  skuCode?: string;
+  hsnCode?: string;
+  basePrice: number;
+  discountedPrice?: number;
+  image: string;
+  tags: string[];
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type ItemVariant = {
   size: 'Normal' | 'Medium' | 'Large';
   mrp: number;
@@ -144,6 +164,11 @@ export type MenuItem = {
   displayOrder?: number;
   isActive?: boolean;
   variants?: ItemVariant[];
+  masterMenuItemId?: string;
+  isFeatured?: boolean;
+  maxQuantityPerOrder?: number;
+  visibilityTimeStart?: string;
+  visibilityTimeEnd?: string;
 };
 
 export type CartItem = {

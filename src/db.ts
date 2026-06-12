@@ -1,6 +1,6 @@
 import { db } from './firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, getDoc, query, where, orderBy } from 'firebase/firestore';
-import { Brand, Campaign, MenuItem, User } from './types';
+import { Brand, Campaign, MenuItem, User, MasterMenuItem } from './types';
 import { mockBrands, mockCampaigns, mockMenuItems } from './data.mock';
 
 export const dbService = {
@@ -64,6 +64,29 @@ export const dbService = {
 
   async deleteCampaign(campaignId: string) {
     await deleteDoc(doc(db, 'campaigns', campaignId));
+  },
+
+  // MASTER MENU ITEMS
+  async getMasterMenuItems(brandId?: string): Promise<MasterMenuItem[]> {
+    const col = collection(db, 'masterMenuItems');
+    const snapshot = await getDocs(col);
+    const items = snapshot.docs.map(doc => doc.data() as MasterMenuItem);
+    if (brandId) {
+      return items.filter(i => i.brandId === brandId);
+    }
+    return items;
+  },
+
+  async addMasterMenuItem(item: MasterMenuItem) {
+    await setDoc(doc(db, 'masterMenuItems', item.id), item);
+  },
+
+  async updateMasterMenuItem(item: MasterMenuItem) {
+    await updateDoc(doc(db, 'masterMenuItems', item.id), item as any);
+  },
+
+  async deleteMasterMenuItem(itemId: string) {
+    await deleteDoc(doc(db, 'masterMenuItems', itemId));
   },
 
   // MENU ITEMS

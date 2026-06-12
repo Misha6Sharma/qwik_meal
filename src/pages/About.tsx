@@ -11,7 +11,7 @@ export function About() {
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           {/* Hero Video Banner */}
-          <div className="w-full max-w-4xl mx-auto aspect-video md:aspect-[21/9] rounded-3xl overflow-hidden mb-12 shadow-2xl relative flex items-center justify-center bg-gray-900 border border-black/10">
+          <div className="w-full max-w-5xl mx-auto aspect-video rounded-3xl overflow-hidden mb-12 shadow-2xl relative flex items-center justify-center bg-gray-900 border border-black/10">
              <div className="absolute inset-0 bg-black/10 z-10 pointer-events-none"></div>
              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 z-10 pointer-events-none"></div>
              <iframe 
