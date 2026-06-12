@@ -171,7 +171,40 @@ async function startServer() {
                   }
                }
             } else {
-               console.warn(`[Webhook Warning] No pending order found in Firestore for paymentReference == ${rzpOrderId}`);
+               console.warn(`[Webhook Warning] No pending order found in Firestore for paymentReference == ${rzpOrderId}. Reconstructing order from webhook payload...`);
+               
+               const amount = (payment?.amount || 0) / 100;
+               const email = payment?.email || payment?.notes?.email || '';
+               const contact = payment?.contact || payment?.notes?.contact || '';
+               
+               const newOrderId = `ORD-REC-${Date.now()}`;
+               const newOrderData = {
+                  id: newOrderId,
+                  userId: 'guest',
+                  orderType: 'DELIVERY', 
+                  orderVariant: 'OTHER',
+                  status: 'CONFIRMED',
+                  paymentStatus: 'PAID',
+                  paymentReference: rzpOrderId,
+                  totalAmount: amount,
+                  gstAmount: 0,
+                  savingsAmount: 0,
+                  recipientEmail: email,
+                  recipientContact: contact,
+                  deliveryAddress: 'PENDING_MANUAL_RESOLUTION',
+                  createdAt: new Date().toISOString(),
+                  items: [],
+                  auditLogs: [{
+                     id: `LOG-WEBHOOK-REC-${Date.now()}`,
+                     timestamp: new Date().toISOString(),
+                     action: 'WEBHOOK_ORDER_RECONSTRUCTED',
+                     performedBy: 'System (Webhook)',
+                     details: `Reconstructed order from webhook event ${event}. Payment ID: ${paymentId}`
+                  }]
+               };
+
+               await setDoc(doc(db, 'orders', newOrderId), newOrderData);
+               console.log(`[Webhook Reconcile] Successfully created reconstructed order: ${newOrderId}`);
             }
          }
       }
