@@ -3,6 +3,21 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import Razorpay from "razorpay";
 import crypto from "crypto";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, query, where, getDocs, doc, setDoc } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD5hZZJKyZ5098XNG6fAi72YXlrf88EsGQ",
+  authDomain: "qwik-meal.firebaseapp.com",
+  projectId: "qwik-meal",
+  storageBucket: "qwik-meal.firebasestorage.app",
+  messagingSenderId: "180794009653",
+  appId: "1:180794009653:web:39d40035daa6f539cea97c",
+  measurementId: "G-9TWDJQ740X"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 
 async function startServer() {
   const app = express();
@@ -105,20 +120,60 @@ async function startServer() {
         if (expectedSignature !== signature) {
            console.error("Webhook signature mismatch");
            return res.status(400).send("Invalid Signature");
-        }
+         }
       }
 
       console.log("WEBHOOK RECEIVED:", req.body?.event);
       const event = req.body?.event;
       
       if (event === "payment.captured" || event === "order.paid") {
-         const payment = req.body.payload.payment.entity;
-         console.log("PAYMENT CAPTURED Event for Razorpay Order:", payment.order_id);
-         console.log("Payment details:", payment);
-         // In production, instantiate Firebase Admin SDK here to update the order
-         // db.collection('orders').where('paymentReference', '==', payment.order_id)
-         // .update({ paymentStatus: 'PAID', status: 'CONFIRMED' })
-         console.log("ORDER RECONCILED AND MARKED PAID via webhook (Admin SDK placeholder)");
+         const payment = req.body.payload?.payment?.entity || req.body.payload?.order?.entity;
+         const rzpOrderId = payment?.order_id || req.body.payload?.payment?.entity?.order_id;
+         const paymentId = payment?.id;
+         
+         console.log(`[Webhook] PAYMENT SIGNALS RECEIVED: RzpOrder=${rzpOrderId}, PaymentId=${paymentId}`);
+         
+         if (rzpOrderId) {
+            const ordersRef = collection(db, 'orders');
+            const q = query(ordersRef, where('paymentReference', '==', rzpOrderId));
+            const snapshot = await getDocs(q);
+            
+            if (!snapshot.empty) {
+               for (const docSnap of snapshot.docs) {
+                  const orderData = docSnap.data();
+                  console.log(`[Webhook] Matching order found in Firestore: ${docSnap.id}`);
+                  
+                  if (orderData.paymentStatus !== 'PAID') {
+                     const auditLogs = orderData.auditLogs || [];
+                     const updatedAuditLogs = [
+                        ...auditLogs,
+                        {
+                           id: `LOG-WEBHOOK-${Date.now()}`,
+                           timestamp: new Date().toISOString(),
+                           action: 'WEBHOOK_PAYMENT_PROCESSED',
+                           performedBy: 'System (Webhook)',
+                           details: `Validated payment through Razorpay event: ${event}. Payment ID: ${paymentId}`
+                        }
+                     ];
+
+                     const confirmedStatus = orderData.orderType === 'PICKUP' ? 'PROCESSING' : 'CONFIRMED';
+                     
+                     await setDoc(doc(db, 'orders', docSnap.id), {
+                        status: orderData.status === 'PENDING_PAYMENT' ? confirmedStatus : orderData.status,
+                        paymentStatus: 'PAID',
+                        paymentReference: paymentId || orderData.paymentReference || '',
+                        auditLogs: updatedAuditLogs
+                     }, { merge: true });
+                     
+                     console.log(`[Webhook Reconcile] Successfully reconciled order ${docSnap.id} to PAID / ${confirmedStatus}.`);
+                  } else {
+                     console.log(`[Webhook Reconcile] Order ${docSnap.id} was already marked PAID.`);
+                  }
+               }
+            } else {
+               console.warn(`[Webhook Warning] No pending order found in Firestore for paymentReference == ${rzpOrderId}`);
+            }
+         }
       }
 
       res.status(200).send("OK");

@@ -553,7 +553,8 @@ export function CampaignView() {
         setCheckoutStep('SUCCESS');
         setCart({});
         
-        await dbService.updateOrder(generatedOrderId, {
+        dbService.updateOrder(generatedOrderId, {
+          ...JSON.parse(JSON.stringify(pendingOrder)),
           status: 'CONFIRMED',
           paymentStatus: 'PAID',
           paymentReference: response.razorpay_payment_id || ''

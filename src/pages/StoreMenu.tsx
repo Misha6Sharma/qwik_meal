@@ -361,22 +361,13 @@ export function StoreMenu() {
         const cleanedOrder = JSON.parse(JSON.stringify(order));
 
         if (isPending) {
-           try {
-             await dbService.addCampaignLog({
-               id: `log-${Date.now()}`,
-               action: 'DEBUG_ADD_ORDER',
-               payload: JSON.stringify(cleanedOrder).substring(0, 500)
-             });
-             await dbService.addOrder(cleanedOrder);
-           } catch(e: any) {
-             console.error("ADD_ORDER_FAILED", e);
-             await dbService.addCampaignLog({
-               id: `log-FAIL-${Date.now()}`,
-               action: 'DEBUG_ADD_ORDER_FAILED',
-               payload: e?.message || 'unknown'
-             });
-             throw e;
-           }
+           // Fire and forget to unblock Razorpay
+           dbService.addCampaignLog({
+             id: `log-${Date.now()}`,
+             action: 'DEBUG_ADD_ORDER',
+             payload: JSON.stringify(cleanedOrder).substring(0, 500)
+           }).catch(console.error);
+           dbService.addOrder(cleanedOrder).catch(console.error);
            return;
         }
 
@@ -386,12 +377,11 @@ export function StoreMenu() {
         setCart([]);
         
         try {
-          // Only update necessary fields to avoid data validation errors or overwriting with stale state
-          await dbService.updateOrder(orderId, {
+          dbService.updateOrder(orderId, JSON.parse(JSON.stringify({
+            ...cleanedOrder,
             status: 'PROCESSING',
             paymentStatus: 'PAID',
             paymentReference: txRef || '',
-            // appending audit log via merge: true replaces it entirely, so we include the whole array
             auditLogs: [...cleanedOrder.auditLogs, {
               id: `LOG-${Date.now() + 1}`,
               timestamp: new Date().toISOString(),
@@ -399,9 +389,11 @@ export function StoreMenu() {
               performedBy: 'System',
               details: 'Payment processed successfully'
             }]
+          }))).catch(e => {
+            console.warn('Firebase sync failed for order update', e);
           });
         } catch (e) {
-          console.warn('Firebase sync failed for order update', e);
+          console.warn('Sync construction failed', e);
         }
 
         // Transaction Audit
