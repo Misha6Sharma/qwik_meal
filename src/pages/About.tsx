@@ -11,17 +11,18 @@ export function About() {
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           {/* Hero Video Banner */}
-          <div className="w-full max-w-5xl mx-auto aspect-video rounded-3xl overflow-hidden mb-12 shadow-2xl relative flex items-center justify-center bg-gray-900 border border-black/10">
+          <div className="w-full max-w-6xl mx-auto aspect-video rounded-3xl overflow-hidden mb-12 shadow-2xl relative flex items-center justify-center bg-gray-900 border border-black/10">
              <div className="absolute inset-0 bg-black/10 z-10 pointer-events-none"></div>
              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 z-10 pointer-events-none"></div>
-             <iframe 
-               src="https://player.cloudinary.com/embed/?cloud_name=dyizr5fqq&public_id=Title_QwikMeal___The_Last_Sup_scvrzt&fluid=true&autoplay=true&loop=true&muted=true&controls=true"
-               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-               allowFullScreen
-               frameBorder="0"
-               className="absolute inset-0 w-full h-full z-0"
-               title="About QwikMeal Video"
-             ></iframe>
+             <video 
+               src="https://res.cloudinary.com/dyizr5fqq/video/upload/Title_QwikMeal___The_Last_Sup_scvrzt.mp4"
+               poster="https://res.cloudinary.com/dyizr5fqq/video/upload/Title_QwikMeal___The_Last_Sup_scvrzt.jpg"
+               autoPlay
+               loop
+               preload="auto"
+               playsInline
+               className="absolute inset-0 w-full h-full object-contain z-0 bg-black"
+             />
           </div>
 
           <div className="max-w-4xl mx-auto text-center space-y-6 mt-16 mb-8">
