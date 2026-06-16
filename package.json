@@ -30,6 +30,7 @@
     "react-dom": "^19.0.1",
     "react-easy-crop": "^5.5.7",
     "react-router-dom": "^7.15.1",
+    "resend": "^6.12.4",
     "vite": "^6.2.3"
   },
   "devDependencies": {

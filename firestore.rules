@@ -54,6 +54,11 @@ service cloud.firestore {
       allow read, update, delete: if isSignedIn();
     }
 
+    match /contactEnquiries/{enquiryId} {
+      allow create: if true;
+      allow read, update, delete: if isSignedIn();
+    }
+
     match /campaignLogs/{logId} {
       allow create: if true;
       allow read, update, delete: if isSignedIn();

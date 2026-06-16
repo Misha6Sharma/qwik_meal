@@ -5,6 +5,9 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, query, where, getDocs, doc, setDoc } from "firebase/firestore";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY || "re_dummy_key");
 
 const firebaseConfig = {
   apiKey: "AIzaSyD5hZZJKyZ5098XNG6fAi72YXlrf88EsGQ",
@@ -29,6 +32,48 @@ async function startServer() {
   }));
 
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  // Contact API Integration & Email
+  app.post("/api/contact", async (req, res) => {
+    try {
+      const { name, companyName, email, mobileNumber, subject, message } = req.body;
+      
+      if (!name || !email || !mobileNumber || !subject || !message) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const htmlContent = `
+        <h2>New Contact Enquiry Received</h2>
+        <p><strong>Name:</strong> ${name}</p>
+        <p><strong>Company Name:</strong> ${companyName || 'N/A'}</p>
+        <p><strong>Email Address:</strong> ${email}</p>
+        <p><strong>Contact Number:</strong> ${mobileNumber}</p>
+        <p><strong>Subject:</strong> ${subject}</p>
+        <p><strong>Message:</strong></p>
+        <blockquote style="background: #f9f9f9; padding: 15px; border-left: 4px solid #ccc;">
+          ${message.replace(/\n/g, '<br />')}
+        </blockquote>
+        <p><small>Submitted via QwikMeal Contact Us Form at ${new Date().toLocaleString()}</small></p>
+      `;
+
+      if (process.env.RESEND_API_KEY) {
+        await resend.emails.send({
+          from: "QwikMeal <onboarding@resend.dev>", // usually would use a verified domain here, but resend.dev is for test
+          to: "sachin@qwikmeal.com",
+          cc: "contact@qwikmeal.com",
+          subject: `New Contact Enquiry Received - ${name}`,
+          html: htmlContent,
+        });
+      } else {
+        console.log("Mock Email Sent due to missing RESEND_API_KEY", htmlContent);
+      }
+
+      res.status(200).json({ success: true, message: "Email sent successfully" });
+    } catch (error) {
+      console.error("Failed to send contact email:", error);
+      res.status(500).json({ error: "Failed to process enquiry" });
+    }
+  });
 
   // Razorpay Integration
   app.post("/api/razorpay/order", async (req, res) => {

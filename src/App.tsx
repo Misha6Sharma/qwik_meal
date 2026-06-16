@@ -38,6 +38,7 @@ import { BrandMasterMenu } from './pages/BrandMasterMenu';
 import { CampaignView } from './pages/CampaignView';
 import { CustomerOrders } from './pages/CustomerOrders';
 import { AdminLeads } from './pages/AdminLeads';
+import { AdminEnquiries } from './pages/AdminEnquiries';
 
 export default function App() {
   return (
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="super/users" element={<SuperAdminUsers />} />
           <Route path="super/brands" element={<SuperAdminBrands />} />
           <Route path="super/brands/:brandId/menu" element={<BrandMasterMenu />} />
+          <Route path="super/enquiries" element={<AdminEnquiries />} />
         </Route>
         <Route path="*" element={<NotFoundFallback />} />
       </Routes>

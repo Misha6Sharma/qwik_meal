@@ -117,6 +117,7 @@ export function Layout() {
                     <Link to="/super/users" className="hover:text-red-600 transition-colors">Users</Link>
                     <Link to="/super/brands" className="hover:text-red-600 transition-colors">Brands</Link>
                     <Link to="/super/audits" className="hover:text-red-600 transition-colors">Audits</Link>
+                    <Link to="/super/enquiries" className="hover:text-red-600 transition-colors">Enquiries</Link>
                   </>
                 )}
                 
@@ -186,6 +187,7 @@ export function Layout() {
                       <Link to="/super/users" onClick={() => setIsMobileMenuOpen(false)}>Users</Link>
                       <Link to="/super/brands" onClick={() => setIsMobileMenuOpen(false)}>Brands</Link>
                       <Link to="/super/audits" onClick={() => setIsMobileMenuOpen(false)}>Audits</Link>
+                      <Link to="/super/enquiries" onClick={() => setIsMobileMenuOpen(false)}>Enquiries</Link>
                     </>
                   )}
                   <button onClick={() => { setIsPwdModalOpen(true); setIsMobileMenuOpen(false); }} className="text-gray-600 flex items-center gap-2 text-left hover:text-red-700 font-medium">
