@@ -59,6 +59,7 @@ export function CampaignView() {
   const [dietaryFilter, setDietaryFilter] = useState<'ALL' | 'VEG' | 'NON_VEG'>('ALL');
 
   const [deliveryPinCode, setDeliveryPinCode] = useState('');
+  const [promptedPincode, setPromptedPincode] = useState('');
   
   useEffect(() => {
     const checkPendingPayment = async () => {
@@ -160,6 +161,20 @@ export function CampaignView() {
     }
   }, [deliveryPinCode, isServiceable]);
 
+  const [showServiceablePrompt, setShowServiceablePrompt] = useState(false);
+
+  useEffect(() => {
+    if (hasServiceabilityRequirement && deliveryPinCode && deliveryPinCode.length === 6 && isServiceable && deliveryPinCode !== promptedPincode) {
+      setPromptedPincode(deliveryPinCode);
+      const input = document.getElementById('serviceability-pincode-input');
+      if (input) input.blur();
+      
+      setTimeout(() => {
+        setShowServiceablePrompt(true);
+      }, 300);
+    }
+  }, [deliveryPinCode, hasServiceabilityRequirement, isServiceable, promptedPincode]);
+
   const [timeLeft, setTimeLeft] = useState<{days: number, hours: number, minutes: number, seconds: number} | null>(null);
 
   useEffect(() => {
@@ -209,22 +224,24 @@ export function CampaignView() {
     }
   }, [campaign]);
 
+  const [isBuildingOrder, setIsBuildingOrder] = useState(false);
+  
   useEffect(() => {
     if (currentUser) {
       setDeliveryForm(prev => ({
         ...prev,
-        name: currentUser.name || '',
+        name: '',
         email: currentUser.email || '',
         phone: currentUser.phone || ''
       }));
       setEventLeadForm(prev => ({
         ...prev,
-        name: currentUser.name || '',
+        name: '',
         email: currentUser.email || '',
         phone: currentUser.phone || ''
       }));
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     let active = true;
@@ -672,97 +689,101 @@ export function CampaignView() {
   return (
     <div className="w-full bg-gray-50 min-h-dvh pb-20 pt-[env(safe-area-inset-top,0px)]">
       {/* Campaign Banner */}
-      <div className="relative w-full h-80 bg-gray-900 overflow-hidden">
-        <img 
-          src={brand.logo || undefined} 
-          alt={brand.name} 
-          className="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/60 to-transparent"></div>
-        <div className="relative z-10 h-full max-w-5xl mx-auto px-4 flex flex-col justify-end pb-10">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-20 h-20 bg-white rounded-xl p-2 shadow-lg flex items-center justify-center">
-              <img src={brand.logo || undefined} alt={brand.name} className="max-w-full max-h-full object-contain" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-red-400 font-bold uppercase tracking-wider text-sm">{brand.name}</span>
-                <span className="bg-blue-100/20 border border-blue-200/50 text-blue-200 backdrop-blur-sm text-xs px-2 py-0.5 rounded flex items-center gap-1 font-semibold">
-                  <ShieldCheck size={12} /> Verified Merchant
-                </span>
+      {!isBuildingOrder && (
+        <div className="relative w-full h-80 bg-gray-900 overflow-hidden">
+          <img 
+            src={brand.logo || undefined} 
+            alt={brand.name} 
+            className="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/60 to-transparent"></div>
+          <div className="relative z-10 h-full max-w-5xl mx-auto px-4 flex flex-col justify-end pb-10">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-20 h-20 bg-white rounded-xl p-2 shadow-lg flex items-center justify-center">
+                <img src={brand.logo || undefined} alt={brand.name} className="max-w-full max-h-full object-contain" />
               </div>
-              <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight">{campaign.name}</h1>
+              <div>
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <span className="text-red-400 font-bold uppercase tracking-wider text-sm">{brand.name}</span>
+                  <span className="bg-blue-100/20 border border-blue-200/50 text-blue-200 backdrop-blur-sm text-xs px-2 py-0.5 rounded flex items-center gap-1 font-semibold">
+                    <ShieldCheck size={12} /> Verified Merchant
+                  </span>
+                </div>
+                <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight">{campaign.name}</h1>
+              </div>
             </div>
-          </div>
-          <p className="text-gray-300 max-w-2xl text-lg">
-            {brand.description}
-          </p>
-
-          <div className="flex flex-wrap gap-4 pt-4">
-            {campaign.endDate && (
-               <div className="bg-red-900/40 border border-red-800 rounded-lg px-4 py-2 flex items-center gap-2">
-                 <Clock className="text-red-400" size={18} />
-                 <div>
-                   <p className="text-xs text-red-200">Order Window Closes</p>
-                   <p className="text-sm font-bold text-white">{new Date(campaign.endDate).toLocaleString()}</p>
+            <p className="text-gray-300 max-w-2xl text-lg">
+              {brand.description}
+            </p>
+  
+            <div className="flex flex-wrap gap-4 pt-4">
+              {campaign.endDate && (
+                 <div className="bg-red-900/40 border border-red-800 rounded-lg px-4 py-2 flex items-center gap-2">
+                   <Clock className="text-red-400" size={18} />
+                   <div>
+                     <p className="text-xs text-red-200">Order Window Closes</p>
+                     <p className="text-sm font-bold text-white">{new Date(campaign.endDate).toLocaleString()}</p>
+                   </div>
                  </div>
-               </div>
-            )}
-            
-            {campaign.fulfillmentSettings?.mode === 'FIXED' && campaign.fulfillmentSettings.fixedDeliveryDate && (
-               <div className="bg-blue-900/40 border border-blue-800 rounded-lg px-4 py-2 flex items-center gap-2">
-                 <MapPin className="text-blue-400" size={18} />
-                 <div>
-                   <p className="text-xs text-blue-200">Scheduled Delivery</p>
-                   <p className="text-sm font-bold text-white">{new Date(campaign.fulfillmentSettings.fixedDeliveryDate).toLocaleDateString()} | {campaign.fulfillmentSettings.fixedDeliveryTime}</p>
+              )}
+              
+              {campaign.fulfillmentSettings?.mode === 'FIXED' && campaign.fulfillmentSettings.fixedDeliveryDate && (
+                 <div className="bg-blue-900/40 border border-blue-800 rounded-lg px-4 py-2 flex items-center gap-2">
+                   <MapPin className="text-blue-400" size={18} />
+                   <div>
+                     <p className="text-xs text-blue-200">Scheduled Delivery</p>
+                     <p className="text-sm font-bold text-white">{new Date(campaign.fulfillmentSettings.fixedDeliveryDate).toLocaleDateString()} | {campaign.fulfillmentSettings.fixedDeliveryTime}</p>
+                   </div>
                  </div>
-               </div>
-            )}
-
-            {campaign.socialProof?.enabled && (
-              <>
-                <div className="bg-yellow-900/40 border border-yellow-800 rounded-lg px-4 py-2 flex items-center gap-2">
-                 <Flame className="text-yellow-400" size={18} />
-                 <div>
-                   <p className="text-sm font-bold text-white">{campaign.socialProof.ordersPlaced}+ Ordered</p>
-                   <p className="text-xs text-yellow-200">High Demand</p>
+              )}
+  
+              {campaign.socialProof?.enabled && (
+                <>
+                  <div className="bg-yellow-900/40 border border-yellow-800 rounded-lg px-4 py-2 flex items-center gap-2">
+                   <Flame className="text-yellow-400" size={18} />
+                   <div>
+                     <p className="text-sm font-bold text-white">{campaign.socialProof.ordersPlaced}+ Ordered</p>
+                     <p className="text-xs text-yellow-200">High Demand</p>
+                   </div>
                  </div>
-               </div>
-               
-               <div className="bg-white/10 border border-white/20 rounded-lg px-4 py-2 flex flex-col justify-center">
-                 <div className="flex items-center gap-1">
-                   <Star className="text-yellow-400 fill-current" size={14} />
-                   <span className="text-sm font-bold text-white leading-none">{campaign.socialProof.rating}/5</span>
+                 
+                 <div className="bg-white/10 border border-white/20 rounded-lg px-4 py-2 flex flex-col justify-center">
+                   <div className="flex items-center gap-1">
+                     <Star className="text-yellow-400 fill-current" size={14} />
+                     <span className="text-sm font-bold text-white leading-none">{campaign.socialProof.rating}/5</span>
+                   </div>
+                   <p className="text-xs text-gray-300 mt-0.5">Top Rated</p>
                  </div>
-                 <p className="text-xs text-gray-300 mt-0.5">Top Rated</p>
-               </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Banner indicating Secure Checkout */}
-      <div className="w-full bg-green-50 border-b border-green-100 py-3 shadow-sm z-20 relative">
-        <div className="max-w-5xl mx-auto px-4 flex items-center justify-between text-xs sm:text-sm text-green-800 font-medium">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={18} className="text-green-600" />
-            <span>Secure Checkout by QwikMeal</span>
-          </div>
-          {campaign.endDate && !isCampaignExpired && timeLeft && (
+      {!isBuildingOrder && (
+        <div className="w-full bg-green-50 border-b border-green-100 py-3 shadow-sm z-20 relative">
+          <div className="max-w-5xl mx-auto px-4 flex items-center justify-between text-xs sm:text-sm text-green-800 font-medium">
             <div className="flex items-center gap-2">
-               <Clock size={16} className="text-green-600" />
-               <span>Ends in: <strong className="tabular-nums">{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s</strong></span>
+              <ShieldCheck size={18} className="text-green-600" />
+              <span>Secure Checkout by QwikMeal</span>
             </div>
-          )}
-          {isCampaignExpired && (
-            <div className="flex items-center gap-2 text-red-600">
-               <Clock size={16} />
-               <span>Campaign Expired</span>
-            </div>
-          )}
+            {campaign.endDate && !isCampaignExpired && timeLeft && (
+              <div className="flex items-center gap-2">
+                 <Clock size={16} className="text-green-600" />
+                 <span>Ends in: <strong className="tabular-nums">{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s</strong></span>
+              </div>
+            )}
+            {isCampaignExpired && (
+              <div className="flex items-center gap-2 text-red-600">
+                 <Clock size={16} />
+                 <span>Campaign Expired</span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-4 mt-10">
         <div className="grid md:grid-cols-3 gap-8">
@@ -814,7 +835,7 @@ export function CampaignView() {
                       <h3 className="font-bold text-gray-900 border-b pb-2">Contact Information</h3>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-500">*</span></label>
-                        <input required type="text" value={deliveryForm.name} onChange={e => setDeliveryForm({...deliveryForm, name: e.target.value})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${!deliveryForm.name ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`} placeholder="John Doe" />
+                        <input required type="text" value={deliveryForm.name} onChange={e => setDeliveryForm({...deliveryForm, name: e.target.value})} className={`w-full rounded-lg px-4 py-2 outline-none transition-colors ${!deliveryForm.name ? 'border-2 border-red-300 bg-red-50/50 focus:border-red-500' : 'border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500'}`} placeholder="Enter Here" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number <span className="text-red-500">*</span></label>
@@ -904,20 +925,24 @@ export function CampaignView() {
             ) : (
               <div>
 
-                {brand?.serviceability?.enabled && (brand.serviceability.coverageType === 'PINCODES' || brand.serviceability.coverageType === 'CITIES') && (
-                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4 justify-between mb-8">
-                    <div className="text-indigo-900">
-                      <p className="font-semibold text-sm">Campaign Delivery Area</p>
-                      <p className="text-xs mt-1">Please enter your 6-digit delivery Pincode to check serviceability.</p>
+                {!isBuildingOrder && brand?.serviceability?.enabled && (brand.serviceability.coverageType === 'PINCODES' || brand.serviceability.coverageType === 'CITIES') && (
+                  <div className={`rounded-xl p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-4 justify-between mb-8 transition-all ${!serviceabilityPassed ? 'bg-indigo-50 border-2 border-indigo-500 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border border-gray-200'}`}>
+                    <div className={!serviceabilityPassed ? 'text-indigo-900' : 'text-gray-700'}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {!serviceabilityPassed && <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Step 1</span>}
+                        <p className="font-bold text-lg">Check Serviceability</p>
+                      </div>
+                      <p className="text-sm mt-1">Please enter your 6-digit delivery Pincode to verify we deliver to you before building your order.</p>
                     </div>
-                    <div className="flex gap-2 w-full sm:w-auto">
+                    <div className="flex flex-col gap-2 w-full sm:w-auto">
                       <input 
                         id="serviceability-pincode-input"
                         type="text" 
                         placeholder="Enter Pincode" 
                         value={deliveryPinCode}
                         onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        className="border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-40 bg-white"
+                        className={`rounded-xl border-2 px-4 py-3 text-center text-lg font-bold tracking-widest focus:outline-none w-full sm:w-48 bg-white transition-colors ${!serviceabilityPassed ? 'border-indigo-400 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-indigo-900 placeholder-indigo-300' : 'border-gray-300 focus:border-gray-400 placeholder-gray-400'}`}
+                        maxLength={6}
                       />
                     </div>
                   </div>
@@ -950,7 +975,7 @@ export function CampaignView() {
                     </div>
                   </div>
 
-                  {isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
+                  {!isBuildingOrder && isServiceable && !!deliveryPinCode && deliveryPinCode.length === 6 && !isCampaignExpired && (
                     <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center mb-8">
                       <p className="text-green-800 font-semibold">Great! We serve at this location.</p>
                       <p className="text-green-700 text-sm">Let's start building your order.</p>
@@ -1122,22 +1147,24 @@ export function CampaignView() {
                 </div>
 
                 {/* Event Catering Promotional Banner */}
-                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-8 mt-12 shadow-sm text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
-                  <div className="md:max-w-2xl">
-                    <h3 className="text-xl md:text-2xl font-bold text-indigo-900 mb-2">🎉 Planning an Office Party, Birthday, Family Gathering or Corporate Event?</h3>
-                    <p className="text-indigo-700 text-sm md:text-base leading-relaxed">
-                      Get delicious food from your favorite brands for groups of any size. Special pricing and customized meal solutions available.
-                    </p>
+                {!isBuildingOrder && (
+                  <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-8 mt-12 shadow-sm text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="md:max-w-2xl">
+                      <h3 className="text-xl md:text-2xl font-bold text-indigo-900 mb-2">🎉 Planning an Office Party, Birthday, Family Gathering or Corporate Event?</h3>
+                      <p className="text-indigo-700 text-sm md:text-base leading-relaxed">
+                        Get delicious food from your favorite brands for groups of any size. Special pricing and customized meal solutions available.
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                      <button 
+                        onClick={() => { setShowEventPrompt(true); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}}
+                        className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition flex items-center justify-center gap-2 w-full md:w-auto"
+                      >
+                        Request a Catering Quote
+                      </button>
+                    </div>
                   </div>
-                  <div className="shrink-0 flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                    <button 
-                      onClick={() => { setShowEventPrompt(true); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}}
-                      className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition flex items-center justify-center gap-2 w-full md:w-auto"
-                    >
-                      Request a Catering Quote
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -1155,10 +1182,7 @@ export function CampaignView() {
                     <div className="bg-orange-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-orange-100">
                       <ShoppingBag size={28} className="text-orange-500" />
                     </div>
-                    <h4 className="font-bold text-gray-900 mb-2">🍽️ Delicious food is waiting for you!</h4>
-                    <p className="text-sm text-gray-600 mb-6 leading-relaxed">
-                      Start building your cart and unlock exclusive campaign savings, free delivery benefits, and special offers available for a limited time.
-                    </p>
+                    <p className="font-medium text-gray-900 mb-6">Your cart is empty</p>
                     <button onClick={() => { window.scrollTo({ top: document.getElementById('menu-items-section')?.offsetTop || 0, behavior: 'smooth' })}} className="bg-red-600 text-white font-bold py-2.5 px-6 rounded-lg hover:bg-red-700 transition shadow-sm w-full">
                       🛒 Start Building My Cart
                     </button>
@@ -1167,16 +1191,20 @@ export function CampaignView() {
                   <div className="space-y-4">
                     {checkoutStep === 'PRODUCTS' && (
                       <div className="space-y-4 mb-4">
-                        <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-sm">
-                          <div className="font-bold text-red-800 mb-1 flex items-center gap-1">
-                            🔥 Exclusive Campaign Benefits Active
+                        <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-orange-100 border-2 border-orange-200 rounded-2xl p-4 shadow-md relative overflow-hidden">
+                          <div className="absolute -right-6 -top-6 w-24 h-24 bg-orange-300 rounded-full mix-blend-multiply filter blur-2xl opacity-50"></div>
+                          <div className="absolute -left-6 -bottom-6 w-24 h-24 bg-amber-300 rounded-full mix-blend-multiply filter blur-2xl opacity-50"></div>
+                          <div className="relative z-10">
+                            <div className="font-extrabold text-orange-900 mb-3 flex items-center gap-2 text-base">
+                              <span className="text-2xl drop-shadow-sm">😊</span> Exclusive Benefits:
+                            </div>
+                            <ul className="text-orange-900 space-y-2 text-sm font-semibold pl-1">
+                              <li>• Special Discounts</li>
+                              <li>• Delivery Charges Waived off</li>
+                              <li>• Processing Fee Waived off</li>
+                              <li>• Advance Ordering Platform</li>
+                            </ul>
                           </div>
-                          <ul className="text-red-700 space-y-0.5 text-xs">
-                            {getChargesAndBenefits().savings.product > 0 && <li>• Special Discounts</li>}
-                            {getChargesAndBenefits().charges.delivery === 0 && <li>• Free Delivery</li>}
-                            {getChargesAndBenefits().charges.processing === 0 && <li>• Zero Processing Fee</li>}
-                            <li>• Instant Checkout</li>
-                          </ul>
                         </div>
                       </div>
                     )}
@@ -1235,7 +1263,7 @@ export function CampaignView() {
                       <div className="flex justify-between text-gray-500 mb-1 text-sm">
                         <span>Packaging Charges</span>
                         {getChargesAndBenefits().charges.packaging === 0 ? (
-                          <span className="text-green-600 font-medium">Free</span>
+                          <span className="text-gray-500 font-medium">₹0</span>
                         ) : (
                           <span>₹{getChargesAndBenefits().charges.packaging}</span>
                         )}
@@ -1244,7 +1272,7 @@ export function CampaignView() {
                       <div className="flex justify-between text-gray-500 mb-1 text-sm">
                         <span>Delivery Charges</span>
                         {getChargesAndBenefits().charges.delivery === 0 ? (
-                          <span className="text-green-600 font-medium">Free</span>
+                          <span className="text-gray-500 font-medium">₹0</span>
                         ) : (
                           <span>₹{getChargesAndBenefits().charges.delivery}</span>
                         )}
@@ -1253,7 +1281,7 @@ export function CampaignView() {
                       <div className="flex justify-between text-gray-500 mb-2 text-sm">
                         <span>Processing Fee</span>
                         {getChargesAndBenefits().charges.processing === 0 ? (
-                          <span className="text-green-600 font-medium">Free</span>
+                          <span className="text-gray-500 font-medium">₹0</span>
                         ) : (
                           <span>₹{getChargesAndBenefits().charges.processing}</span>
                         )}
@@ -1349,7 +1377,7 @@ export function CampaignView() {
                   <h4 className="font-bold text-gray-900 border-b pb-2">Contact Details</h4>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                    <input required type="text" value={eventLeadForm.name} onChange={e => setEventLeadForm({...eventLeadForm, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Your Name" />
+                    <input required type="text" value={eventLeadForm.name} onChange={e => setEventLeadForm({...eventLeadForm, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter Here" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
@@ -1412,6 +1440,40 @@ export function CampaignView() {
           </div>
         </div>
       )}
+      {/* Serviceable Location UI Prompt */}
+      {showServiceablePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden text-center flex flex-col transform">
+            <div className="bg-green-50 p-6 flex justify-center">
+               <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center shadow-inner">
+                  <MapPin size={32} />
+               </div>
+            </div>
+            <div className="p-6">
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Location Serviceable!</h3>
+              <p className="text-gray-600 mb-6">Great news, we deliver to <span className="font-semibold text-gray-900">{deliveryPinCode}</span>. You can now start picking your items.</p>
+              
+              <button 
+                onClick={() => {
+                  setShowServiceablePrompt(false);
+                  setTimeout(() => {
+                    const el = document.getElementById('menu-items-section');
+                    if (el) {
+                      // Adjust scroll slightly above the element
+                      const y = el.getBoundingClientRect().top + window.pageYOffset - 100;
+                      window.scrollTo({ top: y, behavior: 'smooth' });
+                    }
+                  }, 100);
+                }}
+                className="w-full bg-red-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-red-700 transition shadow-md"
+              >
+                Start Selecting Items
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

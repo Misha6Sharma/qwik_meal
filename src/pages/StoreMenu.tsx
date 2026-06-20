@@ -48,7 +48,7 @@ export function StoreMenu() {
   const [placedOrderId, setPlacedOrderId] = useState<string>('');
   
   // Checkout form state
-  const [recipientName, setRecipientName] = useState(user?.name || '');
+  const [recipientName, setRecipientName] = useState('');
   const [recipientContact, setRecipientContact] = useState('');
   const [recipientEmail, setRecipientEmail] = useState(user?.email || '');
   const [deliveryHouseNo, setDeliveryHouseNo] = useState('');
@@ -572,19 +572,23 @@ export function StoreMenu() {
               </div>
               
               {activeBrand?.serviceability?.enabled && (activeBrand.serviceability.coverageType === 'PINCODES' || activeBrand.serviceability.coverageType === 'CITIES') && (
-                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4 justify-between">
-                  <div className="text-indigo-900">
-                    <p className="font-semibold text-sm">Brand Delivery Area</p>
-                    <p className="text-xs mt-1">Please enter your delivery Pincode to check serviceability.</p>
+                <div className={`rounded-xl p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-4 justify-between transition-all ${!serviceabilityPassed ? 'bg-indigo-50 border-2 border-indigo-500 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border border-gray-200'}`}>
+                  <div className={!serviceabilityPassed ? 'text-indigo-900' : 'text-gray-700'}>
+                    <div className="flex items-center gap-2 mb-1">
+                      {!serviceabilityPassed && <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Step 1</span>}
+                      <p className="font-bold text-lg">Check Serviceability</p>
+                    </div>
+                    <p className="text-sm mt-1">Please enter your 6-digit delivery Pincode to verify we deliver to you before building your order.</p>
                   </div>
-                  <div className="flex gap-2 w-full sm:w-auto">
+                  <div className="flex flex-col gap-2 w-full sm:w-auto">
                     <input 
                       id="serviceability-pincode-input"
                       type="text" 
                       placeholder="Enter Pincode" 
                       value={deliveryPinCode}
                       onChange={e => setDeliveryPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      className="border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-40"
+                      className={`rounded-xl border-2 px-4 py-3 text-center text-lg font-bold tracking-widest focus:outline-none w-full sm:w-48 bg-white transition-colors ${!serviceabilityPassed ? 'border-indigo-400 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-indigo-900 placeholder-indigo-300' : 'border-gray-300 focus:border-gray-400 placeholder-gray-400'}`}
+                      maxLength={6}
                     />
                   </div>
                 </div>
@@ -696,7 +700,7 @@ export function StoreMenu() {
                       
                       <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-4">
                         <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
-                          Delivery: {item.deliveryCharges > 0 ? `₹${item.deliveryCharges}` : 'Free'}
+                          Delivery: {item.deliveryCharges > 0 ? `₹${item.deliveryCharges}` : '₹0'}
                         </span>
                         
                         <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-1 border border-gray-200">
@@ -904,7 +908,7 @@ export function StoreMenu() {
                         <h4 className="font-bold text-sm border-b pb-2">Recipient Details</h4>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
-                          <input type="text" value={recipientName} onChange={e => setRecipientName(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" />
+                          <input type="text" value={recipientName} onChange={e => setRecipientName(e.target.value)} required className="w-full border rounded px-3 py-1.5 text-sm" placeholder="Enter Here" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">Contact Number *</label>
